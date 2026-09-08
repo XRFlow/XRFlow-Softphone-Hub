@@ -2,10 +2,11 @@
 /**
  * Public Hub REST front controller.
  *
- * Install an Apache alias (Module Admin / docs):
- *   Alias /xrflow-hub /var/www/html/admin/modules/xrflowsoftphone/public
+ * Copyright (C) 2026 XRFlow
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Enroll/fleet routes are implemented in later versions. Unlicensed after trial → 402.
+ * Apache alias (packaging/apache/xrflow-softphone-hub.conf):
+ *   Alias /xrflow-hub /var/www/html/admin/modules/xrflowsoftphone/public
  */
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -31,19 +32,15 @@ $path = preg_replace('#^/xrflow-hub#', '', (string) $path);
 $path = '/' . ltrim((string) $path, '/');
 
 if ($path === '/v1/health' || $path === '/health') {
-	$st = $hub->licenseStatus();
+	$st = $hub->hubStatus();
 	echo json_encode([
 		'ok' => true,
-		'product' => 'xrflow_softphone_hub',
-		'api_allowed' => !empty($st['api_allowed']),
-		'reason' => $st['reason'] ?? null,
+		'module' => 'xrflowsoftphone',
+		'license' => 'GPLv3+',
+		'free' => true,
+		'api_allowed' => true,
+		'reason' => $st['reason'] ?? 'free',
 	]);
-	exit;
-}
-
-if (!$hub->apiAllowed()) {
-	http_response_code(402);
-	echo json_encode($hub->restForbiddenPayload());
 	exit;
 }
 

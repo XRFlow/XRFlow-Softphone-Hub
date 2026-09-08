@@ -1,17 +1,20 @@
 # XRFlow Softphone Hub (FreePBX / PBXact)
 
-Enterprise companion to **XRFlow Softphone**. Install on the customer PBX from Module Admin.
+Free GPLv3+ companion to **XRFlow Softphone**. Install on the customer PBX from Module Admin or apt.
 
-- One-button enroll (SIP / WebRTC / WSS / AMI / OAuth from *this* PBX)
-- Fleet monitoring and seat pool
-- Company Presence proxy → Odoo board (does **not** fork `companypresence`)
-- Paid SKU `xrflow_softphone_hub` (HUB-PERP / HUB-MO) — desktop seats remain `xrflow_softphone`
+- One-button enroll (SIP / WebRTC / WSS / AMI from *this* PBX)
+- WebRTC 488 checklist + one-click repair
+- Fleet hooks and Company Presence detect (does **not** fork `companypresence`)
+- **No Hub license key.** Desktop seats remain the commercial product `xrflow_softphone`
+
+Source: [github.com/XRFlow/XRFlow-Softphone-Hub](https://github.com/XRFlow/XRFlow-Softphone-Hub)
 
 ## Constraints
 
 - Do **not** rewrite System Admin OpenVPN remotes, Easy-RSA, or `sysadmin_server1.conf`
 - Do **not** put presence-sync write keys or OLA admin tokens in enroll JSON
-- Do **not** commit signed zips or private keys
+- Do **not** commit signed zips, `module.sig` from an unsigned key, or private keys
+- Do **not** add a paid Hub SKU or trial/402 gate — Sangoma will not sign a commercial module
 
 ## Install on FreePBX 17 / Debian 12 (apt)
 
@@ -24,7 +27,7 @@ sudo apt update
 sudo apt install xrflow-softphone-hub
 ```
 
-That drops the module in `/var/www/html/admin/modules/xrflowsoftphone`, runs `fwconsole ma install xrflowsoftphone`, and enables Apache `/xrflow-hub`. Then **Applications → XRFlow Softphone → License** (14-day trial, then a Hub key).
+That drops the module in `/var/www/html/admin/modules/xrflowsoftphone`, runs `fwconsole ma install xrflowsoftphone`, and enables Apache `/xrflow-hub`. Then **Admin → XRFlow Softphone**.
 
 `stable` also carries the same package if this PBX already uses the desktop Softphone source list.
 
@@ -36,6 +39,12 @@ Apt will pull **apache2**, **rsync**, and PHP 8.2 **cli/curl/xml/mysql/mbstring*
 sudo ./scripts/install-to-freepbx.sh
 fwconsole ma install xrflowsoftphone
 fwconsole reload
+```
+
+Build a FreePBX module tarball (unsigned until your GPG key is signed by Sangoma):
+
+```bash
+./packaging/pack-module.sh
 ```
 
 Build a .deb without publishing:
@@ -55,13 +64,19 @@ Alias /xrflow-hub /var/www/html/admin/modules/xrflowsoftphone/public
 
 ## License
 
-14-day trial from install. After that, enroll/fleet REST returns **HTTP 402** until a Hub key is activated (Applications → XRFlow Softphone → License) against `https://xrflows.com/api/v1/licenses/activate`, product `xrflow_softphone_hub`, `instance_ref` = this PBX deployment UUID.
+GPLv3+ (see `LICENSE`). This module is free: enroll and fleet REST do not require a key.
 
-GPLv3+ (see `LICENSE`). The paid key is a commercial grant, not a replacement for the GPL.
+Desktop XRFlow Softphone seats are a separate commercial product. The GPL on this module does not grant desktop seats.
+
+## Sangoma / FreePBX module signing
+
+Sangoma will only sign a developer GPG key for **open-source, GPL-compatible** modules. They will not sign a commercial module. That is why the Hub is free.
+
+See [docs/SANGOMA_SIGNING.md](docs/SANGOMA_SIGNING.md) for key generation, the Key Signing Agreement, and `sign.php`.
 
 ## Version
 
-0.1.0 — skeleton: dashboard, license activate, trial/402 gate, Company Presence detect, WebRTC 488 scan + template.
+0.2.0 — free companion: dashboard, enroll tokens, WebRTC 488 scan + template, always-on REST. No trial, no Hub SKU.
 
 ## WebRTC template
 

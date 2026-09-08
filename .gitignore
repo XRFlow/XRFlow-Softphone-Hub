@@ -1,8 +1,7 @@
-*.tgz
-*.zip
-*.deb
-*.bak
-*.bak.*
-.env
-.DS_Store
 /dist/
+module.sig
+*.gpg
+*.asc
+*.swp
+*~
+.DS_Store

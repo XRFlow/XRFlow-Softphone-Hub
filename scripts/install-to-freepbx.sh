@@ -6,7 +6,6 @@ if [[ $EUID -ne 0 ]]; then
   echo "Run as root" >&2
   exit 1
 fi
-mkdir -p "$DEST"
-rsync -a --delete --exclude '.git' --exclude 'dist' "$ROOT/" "$DEST/"
+"$ROOT/packaging/stage-module.sh" "$DEST"
 chown -R asterisk:asterisk "$DEST"
 echo "Copied to $DEST — run: fwconsole ma install xrflowsoftphone && fwconsole reload"

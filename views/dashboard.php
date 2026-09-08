@@ -1,6 +1,14 @@
-<?php if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
+<?php
+/**
+ * Dashboard for XRFlow Softphone Hub.
+ *
+ * Copyright (C) 2026 XRFlow
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 $status = $status ?? [];
 $cp = $companyPresence ?? [];
+$view = $view ?? 'dashboard';
 ?>
 <div class="container-fluid">
 	<div class="row">
@@ -8,38 +16,20 @@ $cp = $companyPresence ?? [];
 			<div class="fpbx-container">
 				<div class="display no-border">
 					<h1><?php echo _("XRFlow Softphone Hub") ?></h1>
-					<p class="text-muted"><?php echo _("One-button enroll, fleet monitoring, seat pool, and Company Presence proxy. Desktop seats are sold separately.") ?></p>
+					<p class="text-muted"><?php echo _("Free companion: one-button enroll, WebRTC repair, fleet hooks, and Company Presence detect. Desktop seats are sold separately.") ?></p>
 
-					<ul class="nav nav-tabs">
-						<li class="active"><a href="?display=xrflowsoftphone&amp;view=dashboard"><?php echo _("Dashboard") ?></a></li>
-						<li><a href="?display=xrflowsoftphone&amp;view=compliance"><?php echo _("WebRTC") ?></a></li>
-						<li><a href="?display=xrflowsoftphone&amp;view=enroll"><?php echo _("Enroll") ?></a></li>
-						<li><a href="?display=xrflowsoftphone&amp;view=license"><?php echo _("License") ?></a></li>
-					</ul>
+					<?php include __DIR__ . '/nav.php'; ?>
 
-					<?php if (!empty($status['in_trial'])) { ?>
-					<div class="alert alert-info" style="margin-top:1rem;">
-						<?php echo sprintf(_("Trial: %s day(s) left. Enroll and fleet APIs work until the trial ends."), (int) $status['trial_days_left']) ?>
-					</div>
-					<?php } elseif (empty($status['api_allowed'])) { ?>
-					<div class="alert alert-warning" style="margin-top:1rem;">
-						<?php echo _("Trial ended. Activate a Hub key on the License tab. This page still opens; enroll and fleet APIs return 402.") ?>
-					</div>
-					<?php } elseif (!empty($status['licensed'])) { ?>
 					<div class="alert alert-success" style="margin-top:1rem;">
-						<?php echo _("Hub licensed for this PBX.") ?>
-						<?php if (!empty($status['key_prefix'])) { ?>
-							<code><?php echo htmlspecialchars($status['key_prefix']) ?></code>
-						<?php } ?>
+						<?php echo _("This Hub is free software (GPLv3+). Enroll and fleet APIs are enabled. No Hub license key is required.") ?>
 					</div>
-					<?php } ?>
 
 					<div class="row" style="margin-top:1rem;">
 						<div class="col-md-4">
 							<div class="panel panel-default">
-								<div class="panel-heading"><strong><?php echo _("License") ?></strong></div>
+								<div class="panel-heading"><strong><?php echo _("Status") ?></strong></div>
 								<div class="panel-body">
-									<p><?php echo htmlspecialchars($status['reason'] ?? '') ?></p>
+									<p><?php echo _("Free") ?> · <code>GPLv3+</code></p>
 									<p class="small text-muted"><?php echo _("Deployment") ?>: <code><?php echo htmlspecialchars($status['deployment_uuid'] ?? '') ?></code></p>
 								</div>
 							</div>
@@ -59,10 +49,9 @@ $cp = $companyPresence ?? [];
 								<div class="panel-heading"><strong><?php echo _("Coming next") ?></strong></div>
 								<div class="panel-body">
 									<ul class="small">
-										<li><?php echo _("WebRTC compliance + repair") ?></li>
-										<li><?php echo _("Enroll QR / one-time token") ?></li>
 										<li><?php echo _("Fleet heartbeat") ?></li>
-										<li><?php echo _("Seat pool (org token)") ?></li>
+										<li><?php echo _("Seat pool (org token for desktop licenses)") ?></li>
+										<li><?php echo _("Company Presence proxy") ?></li>
 									</ul>
 								</div>
 							</div>

@@ -1,6 +1,14 @@
-<?php if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
+<?php
+/**
+ * Enroll page for XRFlow Softphone Hub.
+ *
+ * Copyright (C) 2026 XRFlow
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 $flash = $flash ?? null;
 $exts = $extensions ?? [];
+$view = $view ?? 'enroll';
 ?>
 <div class="container-fluid">
 	<div class="row">
@@ -8,12 +16,7 @@ $exts = $extensions ?? [];
 			<div class="fpbx-container">
 				<div class="display no-border">
 					<h1><?php echo _("XRFlow Softphone Hub — Enroll") ?></h1>
-					<ul class="nav nav-tabs">
-						<li><a href="?display=xrflowsoftphone&amp;view=dashboard"><?php echo _("Dashboard") ?></a></li>
-						<li><a href="?display=xrflowsoftphone&amp;view=compliance"><?php echo _("WebRTC") ?></a></li>
-						<li class="active"><a href="?display=xrflowsoftphone&amp;view=enroll"><?php echo _("Enroll") ?></a></li>
-						<li><a href="?display=xrflowsoftphone&amp;view=license"><?php echo _("License") ?></a></li>
-					</ul>
+					<?php include __DIR__ . '/nav.php'; ?>
 
 					<?php if (is_array($flash) && empty($flash['ok']) && !empty($flash['error'])) { ?>
 						<div class="alert alert-danger" style="margin-top:1rem;"><?php echo htmlspecialchars($flash['error']) ?></div>

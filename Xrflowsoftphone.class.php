@@ -1,21 +1,38 @@
 <?php
+/**
+ * XRFlow Softphone Hub — FreePBX/PBXact companion module.
+ *
+ * Copyright (C) 2026 XRFlow
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 namespace FreePBX\modules;
 
 use BMO;
 use FreePBX_Helpers;
 
 /**
- * XRFlow Softphone Hub — FreePBX/PBXact enterprise companion.
+ * Free GPLv3+ companion to the commercial XRFlow Softphone desktop client.
  *
  * Does not rewrite System Admin OpenVPN remotes, Easy-RSA, or sysadmin_server1.conf.
  * Does not mint desktop seat keys. Presence-sync write keys stay on this PBX.
+ * This module is not sold and does not require a Hub license key.
  */
 class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 
-	public const PRODUCT_CODE = 'xrflow_softphone_hub';
-	public const AUTHORITY_URL = 'https://xrflows.com/api/v1/licenses/activate';
-	public const TRIAL_DAYS = 14;
-	public const CHECKIN_GRACE_SECONDS = 7 * 86400;
+	public const MODULE_RAWNAME = 'xrflowsoftphone';
+	public const LICENSE = 'GPLv3+';
 
 	public function __construct($freepbx = null) {
 		$this->FreePBX = $freepbx ?: \FreePBX::create();
@@ -24,9 +41,6 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 	public function install() {
 		if (!$this->getConfig('deployment_uuid')) {
 			$this->setConfig('deployment_uuid', $this->newUuid());
-		}
-		if (!$this->getConfig('trial_started_at')) {
-			$this->setConfig('trial_started_at', time());
 		}
 		$this->installTables();
 	}
@@ -48,7 +62,7 @@ SQL;
 		try {
 			$this->FreePBX->Database()->query($sql);
 		} catch (\Throwable $e) {
-			// table may already exist
+			// table may already exist (module.xml <database> also creates it)
 		}
 	}
 
@@ -61,11 +75,6 @@ SQL;
 			return;
 		}
 		$action = (string) $_POST['xrflow_hub_action'];
-		if ($action === 'activate') {
-			$key = trim((string) ($_POST['hub_license_key'] ?? ''));
-			$_SESSION['xrflow_hub_flash'] = $this->activateLicense($key);
-			return;
-		}
 		if ($action === 'apply_webrtc') {
 			$exts = $_POST['ext'] ?? [];
 			if (!is_array($exts)) {
@@ -88,12 +97,15 @@ SQL;
 
 	public function showPage() {
 		$view = isset($_GET['view']) ? (string) $_GET['view'] : 'dashboard';
-		$allowed = ['dashboard', 'license', 'compliance', 'enroll'];
+		if ($view === 'license') {
+			$view = 'about';
+		}
+		$allowed = ['dashboard', 'about', 'compliance', 'enroll'];
 		if (!in_array($view, $allowed, true)) {
 			$view = 'dashboard';
 		}
 		$vars = [
-			'status' => $this->licenseStatus(),
+			'status' => $this->hubStatus(),
 			'flash' => $_SESSION['xrflow_hub_flash'] ?? null,
 			'view' => $view,
 			'companyPresence' => $this->detectCompanyPresence(),
@@ -106,112 +118,52 @@ SQL;
 	}
 
 	public function ajaxRequest($req, &$setting) {
-		return in_array($req, ['licenseStatus'], true);
+		return in_array($req, ['hubStatus', 'licenseStatus'], true);
 	}
 
 	public function ajaxHandler() {
 		$command = $_REQUEST['command'] ?? '';
-		if ($command === 'licenseStatus') {
-			return $this->licenseStatus();
+		if ($command === 'hubStatus' || $command === 'licenseStatus') {
+			return $this->hubStatus();
 		}
 		return ['status' => false, 'message' => 'unknown'];
 	}
 
 	/**
-	 * REST and enroll/fleet APIs must call this. UI still opens after trial.
+	 * Enroll/fleet REST is always on. The Hub is free software.
 	 */
 	public function apiAllowed() {
-		return $this->licenseStatus()['api_allowed'];
+		return true;
 	}
 
-	public function licenseStatus() {
-		$now = time();
-		$trialStart = (int) $this->getConfig('trial_started_at');
-		if ($trialStart <= 0) {
-			$trialStart = $now;
-			$this->setConfig('trial_started_at', $trialStart);
-		}
-		$trialEnds = $trialStart + (self::TRIAL_DAYS * 86400);
-		$inTrial = $now < $trialEnds;
-		$licensed = (bool) $this->getConfig('licensed');
-		$validUntil = (int) $this->getConfig('license_valid_until');
-		$lastCheckin = (int) $this->getConfig('license_last_checkin');
-		$perpetual = (bool) $this->getConfig('license_perpetual');
-		$keyPrefix = (string) $this->getConfig('license_key_prefix');
-
-		$grantOk = false;
-		if ($licensed) {
-			$notExpired = $perpetual || ($validUntil > 0 && $validUntil > $now);
-			$fresh = $lastCheckin <= 0 || ($now - $lastCheckin) < self::CHECKIN_GRACE_SECONDS;
-			$grantOk = $notExpired && $fresh;
-		}
-
-		$apiAllowed = $grantOk || $inTrial;
-		$reason = 'ok';
-		if (!$apiAllowed) {
-			$reason = 'license_required';
-		} elseif ($grantOk) {
-			$reason = 'licensed';
-		} else {
-			$reason = 'trial';
-		}
-
-		return [
-			'product' => self::PRODUCT_CODE,
-			'deployment_uuid' => (string) $this->getConfig('deployment_uuid'),
-			'licensed' => $grantOk,
-			'in_trial' => $inTrial && !$grantOk,
-			'trial_ends_at' => $trialEnds,
-			'trial_days_left' => $inTrial ? (int) ceil(($trialEnds - $now) / 86400) : 0,
-			'api_allowed' => $apiAllowed,
-			'reason' => $reason,
-			'key_prefix' => $keyPrefix,
-			'perpetual' => $perpetual,
-			'valid_until' => $validUntil ?: null,
-		];
-	}
-
-	public function activateLicense($key) {
-		$key = trim((string) $key);
-		if ($key === '') {
-			return ['ok' => false, 'error' => 'Paste a Hub license key.'];
-		}
+	public function hubStatus() {
 		$uuid = (string) $this->getConfig('deployment_uuid');
 		if ($uuid === '') {
 			$uuid = $this->newUuid();
 			$this->setConfig('deployment_uuid', $uuid);
 		}
-		$body = json_encode([
-			'key' => $key,
-			'product' => self::PRODUCT_CODE,
-			'instance_ref' => $uuid,
-		]);
-		$resp = $this->httpPostJson(self::AUTHORITY_URL, $body);
-		if ($resp['error']) {
-			return ['ok' => false, 'error' => $resp['error']];
-		}
-		$data = $resp['json'];
-		if (empty($data['valid'])) {
-			$err = $data['error'] ?? 'invalid_key';
-			return ['ok' => false, 'error' => 'License not accepted: ' . $err];
-		}
-		$validUntil = 0;
-		if (!empty($data['valid_until'])) {
-			$validUntil = strtotime((string) $data['valid_until']) ?: 0;
-		}
-		$this->setConfig('licensed', true);
-		$this->setConfig('license_perpetual', !empty($data['perpetual']));
-		$this->setConfig('license_valid_until', $validUntil);
-		$this->setConfig('license_last_checkin', time());
-		$this->setConfig('license_key_prefix', substr($key, 0, 12) . '…');
-		$this->setConfig('license_key_hash', hash('sha256', $key));
-		return ['ok' => true, 'message' => 'Hub license activated for this PBX.'];
+		return [
+			'module' => self::MODULE_RAWNAME,
+			'license' => self::LICENSE,
+			'free' => true,
+			'deployment_uuid' => $uuid,
+			'api_allowed' => true,
+			'reason' => 'free',
+			// Compatibility for older dashboard snippets / desktop probes.
+			'licensed' => true,
+			'in_trial' => false,
+			'product' => self::MODULE_RAWNAME,
+		];
+	}
+
+	/** @deprecated Use hubStatus(). Kept so older AJAX clients keep working. */
+	public function licenseStatus() {
+		return $this->hubStatus();
 	}
 
 	public function detectCompanyPresence() {
 		$modDir = '/var/www/html/admin/modules/companypresence';
 		$installed = is_dir($modDir);
-		$health = null;
 		$errno = 0;
 		$errstr = '';
 		$fp = @fsockopen('127.0.0.1', 3921, $errno, $errstr, 0.4);
@@ -222,15 +174,6 @@ SQL;
 		return [
 			'module_present' => $installed,
 			'presence_sync_port_open' => $reachable,
-		];
-	}
-
-	public function restForbiddenPayload() {
-		return [
-			'error' => 'license_required',
-			'http' => 402,
-			'product' => self::PRODUCT_CODE,
-			'message' => 'Hub trial ended. Activate a xrflow_softphone_hub key in Applications → XRFlow Softphone → License.',
 		];
 	}
 
@@ -526,34 +469,6 @@ SQL;
 		} catch (\Throwable $e) {
 			return false;
 		}
-	}
-
-	private function httpPostJson($url, $body) {
-		if (!function_exists('curl_init')) {
-			return ['error' => 'PHP cURL is required to activate the Hub license.', 'json' => null];
-		}
-		$ch = curl_init($url);
-		curl_setopt_array($ch, [
-			CURLOPT_POST => true,
-			CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
-			CURLOPT_POSTFIELDS => $body,
-			CURLOPT_RETURNTRANSFER => true,
-			CURLOPT_TIMEOUT => 15,
-			CURLOPT_CONNECTTIMEOUT => 8,
-		]);
-		$raw = curl_exec($ch);
-		$errno = curl_errno($ch);
-		$err = curl_error($ch);
-		$code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-		curl_close($ch);
-		if ($errno) {
-			return ['error' => 'Cannot reach xrflows.com: ' . $err, 'json' => null];
-		}
-		$json = json_decode((string) $raw, true);
-		if (!is_array($json)) {
-			return ['error' => 'License server returned HTTP ' . $code, 'json' => null];
-		}
-		return ['error' => null, 'json' => $json];
 	}
 
 	private function newUuid() {

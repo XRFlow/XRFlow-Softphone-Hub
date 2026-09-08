@@ -27,16 +27,15 @@ install -d -m 0755 \
   "$STAGE/usr/share/doc/${PKG}" \
   "$STAGE/etc/apache2/conf-available"
 
-# Module payload (no git, no packaging, no built debs)
-tar -C "$ROOT" --exclude-vcs --exclude='./packaging' --exclude='./dist' --exclude='./.git' \
-  -cf - . | tar -C "$STAGE/usr/share/${PKG}/module" -xf -
+# Module payload only (no packaging, git, signing docs, or built debs)
+"$ROOT/packaging/stage-module.sh" "$STAGE/usr/share/${PKG}/module"
 
 install -m 0644 "$ROOT/packaging/apache/xrflow-softphone-hub.conf" \
   "$STAGE/etc/apache2/conf-available/xrflow-softphone-hub.conf"
 install -m 0644 "$ROOT/LICENSE" "$STAGE/usr/share/doc/${PKG}/copyright"
 install -m 0755 "$ROOT/packaging/debian/check-freepbx.sh" "$STAGE/usr/share/${PKG}/check-freepbx.sh"
 printf '%s\n' "xrflow-softphone-hub (${VERSION}) bookworm; urgency=medium" "" \
-  "  * FreePBX 17 / Debian 12 Hub module." "" \
+  "  * Free GPLv3+ companion (no Hub license key)." "" \
   " -- XRFlow <support@xrflows.com>  $(date -Ru)" \
   > "$STAGE/usr/share/doc/${PKG}/changelog"
 gzip -9n "$STAGE/usr/share/doc/${PKG}/changelog"
@@ -55,12 +54,12 @@ Installed-Size: ${SIZE}
 Depends: apache2, rsync, php-cli | php8.2-cli, php-curl | php8.2-curl, php-xml | php8.2-xml, php-mysql | php8.2-mysql, php-mbstring | php8.2-mbstring
 Pre-Depends: php-cli | php8.2-cli
 Description: XRFlow Softphone Hub for FreePBX 17 (Debian 12)
- FreePBX/PBXact module for one-button XRFlow Softphone enroll, WebRTC
- repair, fleet administration, and Company Presence proxy.
+ Free GPLv3+ FreePBX/PBXact companion: one-button XRFlow Softphone
+ enroll, WebRTC repair, fleet hooks, and Company Presence detect.
  .
  Installs into /var/www/html/admin/modules/xrflowsoftphone and enables
  /xrflow-hub on Apache. Requires FreePBX 17 on Debian 12 (bookworm).
- Desktop seats (xrflow_softphone) are a separate license.
+ This module is free; desktop seats (xrflow_softphone) are sold separately.
  .
  Does not rewrite System Admin OpenVPN remotes.
 EOF

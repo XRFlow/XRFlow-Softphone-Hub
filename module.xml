@@ -2,18 +2,21 @@
 	<rawname>xrflowsoftphone</rawname>
 	<repo>unsupported</repo>
 	<name>XRFlow Softphone Hub</name>
-	<version>0.1.3</version>
+	<version>0.2.0</version>
 	<category>Admin</category>
 	<publisher>XRFlow</publisher>
 	<license>GPLv3+</license>
+	<licenselink>https://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
+	<info>https://github.com/XRFlow/XRFlow-Softphone-Hub</info>
 	<description>
-		Enterprise Hub for XRFlow Softphone: one-button enroll from this PBX,
-		fleet monitoring, seat administration, and Company Presence proxy.
-		Requires desktop Softphone seats. Activate a Hub license (xrflow_softphone_hub)
-		against xrflows.com after a 14-day trial.
+		Free GPLv3+ companion for XRFlow Softphone on this FreePBX or PBXact:
+		one-button enroll, WebRTC repair, fleet hooks, and Company Presence
+		detect. Desktop seats are a separate commercial product. This module
+		is not sold and does not require a Hub license key.
 		Does not rewrite System Admin OpenVPN remotes.
 	</description>
 	<changelog>
+		*0.2.0* Free GPLv3+ companion: no Hub license key, no trial, no HTTP 402. Desktop seats remain commercial. Sangoma GPG signing prep.
 		*0.1.3* preinst probes PHP APIs (json_encode, curl_init, PDO mysql) — JSON is core in PHP 8, not php8.2-json
 		*0.1.2* Debian Depends + preinst: refuse install unless FreePBX 17 and PHP curl/xml/mysql/mbstring are present
 		*0.1.1* Enroll tokens (15 min, one-time) + POST /xrflow-hub/v1/enroll/redeem
@@ -30,4 +33,21 @@
 	<supported>
 		<version>17.0</version>
 	</supported>
+	<database>
+		<table name="xrflowsoftphone_enroll">
+			<field name="id" type="integer" primarykey="true" autoincrement="true"/>
+			<field name="token_hash" type="string" length="64" default=""/>
+			<field name="extension" type="string" length="20" default=""/>
+			<field name="override_compliance" type="boolean" default="0"/>
+			<field name="created_at" type="integer" default="0"/>
+			<field name="expires_at" type="integer" default="0"/>
+			<field name="redeemed_at" type="integer" notnull="false"/>
+			<key name="uq_hash" type="unique">
+				<column name="token_hash"/>
+			</key>
+			<key name="idx_ext" type="index">
+				<column name="extension"/>
+			</key>
+		</table>
+	</database>
 </module>
