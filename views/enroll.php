@@ -38,12 +38,18 @@ $view = $view ?? 'enroll';
 						<input type="hidden" name="xrflow_hub_action" value="enroll"/>
 						<div class="form-group">
 							<label for="enroll_ext"><?php echo _("Extension") ?></label>
-							<select class="form-control" id="enroll_ext" name="enroll_ext">
+							<select class="form-control" id="enroll_ext" name="enroll_ext" <?php echo $exts ? '' : 'disabled' ?>>
+								<?php if (!$exts) { ?>
+									<option value=""><?php echo _("No extensions found") ?></option>
+								<?php } ?>
 								<?php foreach ($exts as $ext => $name) { ?>
-									<option value="<?php echo htmlspecialchars($ext) ?>"><?php echo htmlspecialchars($ext . ' — ' . $name) ?></option>
+									<option value="<?php echo htmlspecialchars((string) $ext) ?>"><?php echo htmlspecialchars($ext . ' — ' . $name) ?></option>
 								<?php } ?>
 							</select>
 						</div>
+						<?php if (!$exts) { ?>
+							<p class="text-warning small"><?php echo _("No Core extensions were returned. Confirm Applications → Extensions exist, then reload FreePBX.") ?></p>
+						<?php } ?>
 						<label class="small">
 							<input type="checkbox" name="enroll_override" value="1"/>
 							<?php echo _("Override WebRTC compliance (logged). Prefer Repair on the WebRTC tab.") ?>

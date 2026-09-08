@@ -2,7 +2,7 @@
 	<rawname>xrflowsoftphone</rawname>
 	<repo>unsupported</repo>
 	<name>XRFlow Softphone Hub</name>
-	<version>0.2.0</version>
+	<version>0.2.1</version>
 	<category>Admin</category>
 	<publisher>XRFlow</publisher>
 	<license>GPLv3+</license>
@@ -16,6 +16,7 @@
 		Does not rewrite System Admin OpenVPN remotes.
 	</description>
 	<changelog>
+		*0.2.1* Enroll/WebRTC list Core extensions (do not isset() BMO Core; users.extension not users.user)
 		*0.2.0* Free GPLv3+ companion: no Hub license key, no trial, no HTTP 402. Desktop seats remain commercial. Sangoma GPG signing prep.
 		*0.1.3* preinst probes PHP APIs (json_encode, curl_init, PDO mysql) — JSON is core in PHP 8, not php8.2-json
 		*0.1.2* Debian Depends + preinst: refuse install unless FreePBX 17 and PHP curl/xml/mysql/mbstring are present

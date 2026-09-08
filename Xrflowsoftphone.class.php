@@ -251,13 +251,18 @@ SQL;
 
 	private function listExtensions() {
 		$out = [];
+		// FreePBX loads Core via __get and does not implement __isset, so
+		// isset($this->FreePBX->Core) is always false. Touch the object instead.
 		try {
-			if (isset($this->FreePBX->Core) && method_exists($this->FreePBX->Core, 'listUsers')) {
-				foreach ((array) $this->FreePBX->Core->listUsers() as $row) {
-					$ext = (string) ($row[0] ?? $row['user'] ?? '');
-					$name = (string) ($row[1] ?? $row['name'] ?? $ext);
-					if ($ext !== '') {
-						$out[$ext] = $name;
+			$core = $this->FreePBX->Core;
+			if (is_object($core) && method_exists($core, 'listUsers')) {
+				foreach ((array) $core->listUsers() as $row) {
+					if (!is_array($row)) {
+						continue;
+					}
+					$parsed = $this->parseExtensionRow($row);
+					if ($parsed !== null) {
+						$out[$parsed[0]] = $parsed[1];
 					}
 				}
 			}
@@ -267,18 +272,35 @@ SQL;
 		if ($out) {
 			return $out;
 		}
+		// users.extension is the FreePBX column (not users.user).
 		try {
-			$db = $this->FreePBX->Database();
-			$st = $db->query('SELECT user, name FROM users ORDER BY user');
+			$db = $this->FreePBX->Database;
+			$st = $db->query('SELECT extension, name FROM users ORDER BY extension');
 			if ($st) {
 				foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-					$out[(string) $row['user']] = (string) ($row['name'] ?: $row['user']);
+					$parsed = $this->parseExtensionRow($row);
+					if ($parsed !== null) {
+						$out[$parsed[0]] = $parsed[1];
+					}
 				}
 			}
 		} catch (\Throwable $e) {
 			return $out;
 		}
 		return $out;
+	}
+
+	/**
+	 * @param array<int|string, mixed> $row
+	 * @return array{0:string,1:string}|null
+	 */
+	private function parseExtensionRow(array $row) {
+		$ext = (string) ($row['extension'] ?? $row['user'] ?? $row[0] ?? '');
+		if ($ext === '') {
+			return null;
+		}
+		$name = (string) ($row['name'] ?? $row['description'] ?? $row[1] ?? $ext);
+		return [$ext, $name !== '' ? $name : $ext];
 	}
 
 	private function pjsipKeywords($ext) {
@@ -388,8 +410,9 @@ SQL;
 		$display = $ext;
 		$authUser = $ext;
 		try {
-			if (isset($this->FreePBX->Core) && method_exists($this->FreePBX->Core, 'getDevice')) {
-				$dev = $this->FreePBX->Core->getDevice($ext);
+			$core = $this->FreePBX->Core;
+			if (is_object($core) && method_exists($core, 'getDevice')) {
+				$dev = $core->getDevice($ext);
 				if (is_array($dev)) {
 					$secret = (string) ($dev['secret'] ?? $dev['sippasswd'] ?? '');
 					$display = (string) ($dev['description'] ?? $dev['name'] ?? $display);
