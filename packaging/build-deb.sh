@@ -34,6 +34,7 @@ tar -C "$ROOT" --exclude-vcs --exclude='./packaging' --exclude='./dist' --exclud
 install -m 0644 "$ROOT/packaging/apache/xrflow-softphone-hub.conf" \
   "$STAGE/etc/apache2/conf-available/xrflow-softphone-hub.conf"
 install -m 0644 "$ROOT/LICENSE" "$STAGE/usr/share/doc/${PKG}/copyright"
+install -m 0755 "$ROOT/packaging/debian/check-freepbx.sh" "$STAGE/usr/share/${PKG}/check-freepbx.sh"
 printf '%s\n' "xrflow-softphone-hub (${VERSION}) bookworm; urgency=medium" "" \
   "  * FreePBX 17 / Debian 12 Hub module." "" \
   " -- XRFlow <support@xrflows.com>  $(date -Ru)" \
@@ -51,8 +52,8 @@ Architecture: ${ARCH}
 Maintainer: XRFlow <support@xrflows.com>
 Homepage: https://xrflows.com/softphone
 Installed-Size: ${SIZE}
-Depends: php-cli | php8.2-cli | php8.1-cli
-Recommends: rsync, apache2
+Depends: apache2, rsync, php-cli | php8.2-cli, php-curl | php8.2-curl, php-xml | php8.2-xml, php-mysql | php8.2-mysql, php-mbstring | php8.2-mbstring
+Pre-Depends: php-cli | php8.2-cli
 Description: XRFlow Softphone Hub for FreePBX 17 (Debian 12)
  FreePBX/PBXact module for one-button XRFlow Softphone enroll, WebRTC
  repair, fleet administration, and Company Presence proxy.
@@ -64,6 +65,7 @@ Description: XRFlow Softphone Hub for FreePBX 17 (Debian 12)
  Does not rewrite System Admin OpenVPN remotes.
 EOF
 
+install -m 0755 "$ROOT/packaging/debian/preinst" "$STAGE/DEBIAN/preinst"
 install -m 0755 "$ROOT/packaging/debian/postinst" "$STAGE/DEBIAN/postinst"
 install -m 0755 "$ROOT/packaging/debian/prerm" "$STAGE/DEBIAN/prerm"
 install -m 0755 "$ROOT/packaging/debian/postrm" "$STAGE/DEBIAN/postrm"

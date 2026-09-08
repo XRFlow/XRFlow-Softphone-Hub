@@ -1,0 +1,57 @@
+#!/bin/bash
+set -euo pipefail
+# Abort before unpack if FreePBX 17 / PHP extensions are not present.
+# apt installs Declared Depends first; this catches dpkg -i and missing FreePBX.
+CHECK="/usr/share/xrflow-softphone-hub/check-freepbx.sh"
+if [ -x "$CHECK" ]; then
+  # Upgrade: the new check is not on disk yet; use the copy shipped in this package
+  # after unpack. For install, run the embedded check from stdin via the control archive
+  # is not available here — dpkg extracts maintainer scripts first.
+  :
+fi
+# preinst runs from the .deb control scripts, not from /usr/share yet.
+# Inline the same checks so a bare host cannot install this package.
+err() { echo "xrflow-softphone-hub: $*" >&2; }
+if ! command -v php >/dev/null 2>&1; then
+  err "php is not installed (need php-cli / php8.2-cli)."
+  exit 1
+fi
+if ! command -v fwconsole >/dev/null 2>&1; then
+  err "fwconsole not found. Install FreePBX 17 / PBXact on Debian 12 first."
+  err "Then: apt update && apt install xrflow-softphone-hub"
+  exit 1
+fi
+if [ ! -d /var/www/html/admin/modules ]; then
+  err "FreePBX modules directory missing (/var/www/html/admin/modules)."
+  exit 1
+fi
+if [ ! -r /etc/freepbx.conf ] && [ ! -r /etc/asterisk/freepbx.conf ]; then
+  err "FreePBX is not configured on this host (/etc/freepbx.conf missing)."
+  exit 1
+fi
+MAJOR=""
+if [ -r /var/www/html/admin/modules/framework/module.xml ]; then
+  MAJOR="$(sed -n 's/.*<version>\([0-9][0-9]*\)\..*/\1/p' /var/www/html/admin/modules/framework/module.xml | head -1)"
+fi
+if [ -z "$MAJOR" ]; then
+  MAJOR="$(fwconsole -V 2>/dev/null | sed -n 's/.*\b\([0-9][0-9]*\)\.[0-9].*/\1/p' | head -1)"
+fi
+if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 17 ]; then
+  err "FreePBX 17 is required (detected '${MAJOR:-unknown}')."
+  exit 1
+fi
+for ext in curl json pdo pdo_mysql mbstring xml; do
+  if ! php -m 2>/dev/null | grep -qi "^${ext}$"; then
+    err "PHP extension '${ext}' is not loaded. Install php8.2-${ext} (Debian 12) and retry."
+    exit 1
+  fi
+done
+if ! command -v apache2 >/dev/null 2>&1 && ! command -v apache2ctl >/dev/null 2>&1 && ! command -v httpd >/dev/null 2>&1; then
+  err "Apache (apache2) is required."
+  exit 1
+fi
+if ! command -v rsync >/dev/null 2>&1; then
+  err "rsync is required."
+  exit 1
+fi
+exit 0

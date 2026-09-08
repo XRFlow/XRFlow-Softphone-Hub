@@ -43,25 +43,22 @@ enable_apache() {
 }
 
 register_freepbx() {
-  if ! command -v fwconsole >/dev/null 2>&1; then
-    echo "xrflow-softphone-hub: fwconsole not found. After FreePBX is installed, run:" >&2
-    echo "  fwconsole ma install xrflowsoftphone && fwconsole chown && fwconsole reload" >&2
-    return 0
-  fi
-  fwconsole ma install xrflowsoftphone || true
-  fwconsole chown || true
+  fwconsole ma install xrflowsoftphone
+  fwconsole chown
   fwconsole reload || true
 }
 
 case "${1:-}" in
   configure)
-    if [ -d "$FPBX_MODULES" ]; then
-      install_module_tree
-      register_freepbx
-    else
-      echo "xrflow-softphone-hub: FreePBX modules dir $FPBX_MODULES not present." >&2
-      echo "Module payload is in $MODULE_SRC. Reinstall this package after FreePBX 17 is on this host." >&2
+    if [ -x /usr/share/xrflow-softphone-hub/check-freepbx.sh ]; then
+      /usr/share/xrflow-softphone-hub/check-freepbx.sh
     fi
+    if [ ! -d "$FPBX_MODULES" ]; then
+      echo "xrflow-softphone-hub: FreePBX modules dir $FPBX_MODULES is missing." >&2
+      exit 1
+    fi
+    install_module_tree
+    register_freepbx
     enable_apache
     ;;
 esac

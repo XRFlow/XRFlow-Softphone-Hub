@@ -28,6 +28,8 @@ That drops the module in `/var/www/html/admin/modules/xrflowsoftphone`, runs `fw
 
 `stable` also carries the same package if this PBX already uses the desktop Softphone source list.
 
+Apt will pull **apache2**, **rsync**, and PHP 8.2 **cli/curl/xml/mysql/mbstring**. The package **refuses to install** (`preinst` exit 1) unless `fwconsole` is present, FreePBX framework is **17+**, and those PHP extensions are loaded. It will not install on a bare Debian 12 box.
+
 ## Install (lab, from git)
 
 ```bash
