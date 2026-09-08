@@ -11,6 +11,7 @@ $flash = $flash ?? null;
 					<ul class="nav nav-tabs">
 						<li><a href="?display=xrflowsoftphone&amp;view=dashboard"><?php echo _("Dashboard") ?></a></li>
 						<li><a href="?display=xrflowsoftphone&amp;view=compliance"><?php echo _("WebRTC") ?></a></li>
+						<li><a href="?display=xrflowsoftphone&amp;view=enroll"><?php echo _("Enroll") ?></a></li>
 						<li class="active"><a href="?display=xrflowsoftphone&amp;view=license"><?php echo _("License") ?></a></li>
 					</ul>
 

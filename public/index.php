@@ -47,9 +47,37 @@ if (!$hub->apiAllowed()) {
 	exit;
 }
 
+$method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+
+if ($method === 'POST' && preg_match('#^/v1/enroll/redeem/?$#', $path)) {
+	$rawBody = file_get_contents('php://input');
+	$data = json_decode((string) $rawBody, true);
+	$token = is_array($data) ? (string) ($data['token'] ?? '') : '';
+	if ($token === '' && isset($_POST['token'])) {
+		$token = (string) $_POST['token'];
+	}
+	$result = $hub->redeemEnrollToken($token);
+	if (empty($result['ok'])) {
+		http_response_code((int) ($result['http'] ?? 400));
+		echo json_encode(['error' => $result['error'] ?? 'redeem_failed']);
+		exit;
+	}
+	echo json_encode($result['payload']);
+	exit;
+}
+
+if ($method === 'GET' && preg_match('#^/enroll/([0-9a-f]{32})/?$#', $path, $m)) {
+	echo json_encode([
+		'ok' => true,
+		'hint' => 'POST /xrflow-hub/v1/enroll/redeem with {"token":"..."} from the desktop app.',
+		'token_length' => strlen($m[1]),
+	]);
+	exit;
+}
+
 http_response_code(501);
 echo json_encode([
 	'error' => 'not_implemented',
 	'path' => $path,
-	'message' => 'Enroll, heartbeat, and presence proxy land in later Hub versions.',
+	'message' => 'Heartbeat and presence proxy land in later Hub versions.',
 ]);

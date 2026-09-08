@@ -28,6 +28,28 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 		if (!$this->getConfig('trial_started_at')) {
 			$this->setConfig('trial_started_at', time());
 		}
+		$this->installTables();
+	}
+
+	private function installTables() {
+		$sql = <<<'SQL'
+CREATE TABLE IF NOT EXISTS xrflowsoftphone_enroll (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  token_hash CHAR(64) NOT NULL,
+  extension VARCHAR(20) NOT NULL,
+  override_compliance TINYINT(1) NOT NULL DEFAULT 0,
+  created_at INT NOT NULL,
+  expires_at INT NOT NULL,
+  redeemed_at INT NULL,
+  UNIQUE KEY uq_hash (token_hash),
+  KEY idx_ext (extension)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+SQL;
+		try {
+			$this->FreePBX->Database()->query($sql);
+		} catch (\Throwable $e) {
+			// table may already exist
+		}
 	}
 
 	public function uninstall() {}
@@ -51,6 +73,12 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 			}
 			$override = !empty($_POST['force_override']);
 			$_SESSION['xrflow_hub_flash'] = $this->applyWebrtcTemplate($exts, $override);
+			return;
+		}
+		if ($action === 'enroll') {
+			$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) ($_POST['enroll_ext'] ?? ''));
+			$override = !empty($_POST['enroll_override']);
+			$_SESSION['xrflow_hub_flash'] = $this->generateEnrollToken($ext, $override);
 		}
 	}
 
@@ -60,7 +88,7 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 
 	public function showPage() {
 		$view = isset($_GET['view']) ? (string) $_GET['view'] : 'dashboard';
-		$allowed = ['dashboard', 'license', 'compliance'];
+		$allowed = ['dashboard', 'license', 'compliance', 'enroll'];
 		if (!in_array($view, $allowed, true)) {
 			$view = 'dashboard';
 		}
@@ -71,6 +99,7 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 			'companyPresence' => $this->detectCompanyPresence(),
 			'compliance' => $view === 'compliance' ? $this->scanWebrtcCompliance() : [],
 			'openvpnHint' => $this->openVpnSubnetHint(),
+			'extensions' => $view === 'enroll' ? $this->listExtensions() : [],
 		];
 		unset($_SESSION['xrflow_hub_flash']);
 		return load_view(__DIR__ . '/views/' . $view . '.php', $vars);
@@ -342,6 +371,142 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 			}
 		}
 		return $issues;
+	}
+
+	public function generateEnrollToken($ext, $override = false) {
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $ext);
+		if ($ext === '') {
+			return ['ok' => false, 'error' => 'Pick an extension.'];
+		}
+		$issues = $this->webrtcIssues($this->pjsipKeywords($ext));
+		if ($issues && !$override) {
+			return [
+				'ok' => false,
+				'error' => 'Extension fails WebRTC checks: ' . implode('; ', $issues) . '. Repair first or check override (logged).',
+			];
+		}
+		$raw = bin2hex(random_bytes(16));
+		$hash = hash('sha256', $raw);
+		$now = time();
+		try {
+			$st = $this->FreePBX->Database()->prepare(
+				'INSERT INTO xrflowsoftphone_enroll (token_hash, extension, override_compliance, created_at, expires_at) VALUES (?,?,?,?,?)'
+			);
+			$st->execute([$hash, $ext, $override ? 1 : 0, $now, $now + 900]);
+		} catch (\Throwable $e) {
+			return ['ok' => false, 'error' => 'Could not store enroll token (install tables / fwconsole ma install).'];
+		}
+		$host = $this->publicHost();
+		$https = 'https://' . $host . '/xrflow-hub/enroll/' . $raw;
+		return [
+			'ok' => true,
+			'message' => 'One-time enroll token (15 minutes).',
+			'token' => $raw,
+			'deep_link' => 'xrflow://enroll/' . $raw,
+			'https_link' => $https,
+			'extension' => $ext,
+			'override' => (bool) $override,
+		];
+	}
+
+	public function redeemEnrollToken($raw) {
+		$raw = preg_replace('/[^0-9a-f]/', '', strtolower((string) $raw));
+		if (strlen($raw) !== 32) {
+			return ['ok' => false, 'http' => 400, 'error' => 'invalid_token'];
+		}
+		$hash = hash('sha256', $raw);
+		$db = $this->FreePBX->Database();
+		$st = $db->prepare('SELECT * FROM xrflowsoftphone_enroll WHERE token_hash = ? LIMIT 1');
+		$st->execute([$hash]);
+		$row = $st->fetch(\PDO::FETCH_ASSOC);
+		if (!$row) {
+			return ['ok' => false, 'http' => 404, 'error' => 'unknown_token'];
+		}
+		if (!empty($row['redeemed_at'])) {
+			return ['ok' => false, 'http' => 410, 'error' => 'token_used'];
+		}
+		if ((int) $row['expires_at'] < time()) {
+			return ['ok' => false, 'http' => 410, 'error' => 'token_expired'];
+		}
+		$upd = $db->prepare('UPDATE xrflowsoftphone_enroll SET redeemed_at = ? WHERE id = ? AND redeemed_at IS NULL');
+		$upd->execute([time(), $row['id']]);
+		if ($upd->rowCount() < 1) {
+			return ['ok' => false, 'http' => 410, 'error' => 'token_used'];
+		}
+		$payload = $this->buildEnrollPayload((string) $row['extension']);
+		$payload['companyPresence'] = !empty($this->detectCompanyPresence()['presence_sync_port_open']);
+		return ['ok' => true, 'payload' => $payload];
+	}
+
+	public function buildEnrollPayload($ext) {
+		$host = $this->publicHost();
+		$amiLan = $this->amiLanHost();
+		$secret = '';
+		$display = $ext;
+		$authUser = $ext;
+		try {
+			if (isset($this->FreePBX->Core) && method_exists($this->FreePBX->Core, 'getDevice')) {
+				$dev = $this->FreePBX->Core->getDevice($ext);
+				if (is_array($dev)) {
+					$secret = (string) ($dev['secret'] ?? $dev['sippasswd'] ?? '');
+					$display = (string) ($dev['description'] ?? $dev['name'] ?? $display);
+					$authUser = (string) ($dev['username'] ?? $dev['sipname'] ?? $authUser);
+				}
+			}
+		} catch (\Throwable $e) {
+			// keep defaults
+		}
+		$kv = $this->pjsipKeywords($ext);
+		if ($secret === '' && !empty($kv['secret'])) {
+			$secret = $kv['secret'];
+		}
+		return [
+			'host' => $host,
+			'https' => true,
+			'sipDomain' => $host,
+			'uriUser' => $ext,
+			'authUser' => $authUser ?: $ext,
+			'sipSecret' => $secret,
+			'displayName' => $display,
+			'sipWebsocketUrl' => 'wss://' . $host . ':6443/ws',
+			'sipLanWebsocketUrl' => 'wss://' . $amiLan . ':6443/ws',
+			'sipPreferVpnLan' => $amiLan !== $host,
+			'amiHost' => $amiLan,
+			'amiPort' => 5038,
+			'amiUsername' => 'xrflow-hub',
+			'amiSecret' => '',
+			'openVpnHint' => 'Use the System Admin .ovpn already issued; remotes unmodified.',
+			'policy' => ['minVersion' => '0.2.25', 'lockSettings' => true],
+		];
+	}
+
+	private function publicHost() {
+		$h = (string) ($_SERVER['HTTP_HOST'] ?? '');
+		$h = preg_replace('/:\d+$/', '', $h);
+		if ($h !== '' && $h !== 'localhost') {
+			return $h;
+		}
+		return gethostname() ?: 'pbx.local';
+	}
+
+	private function amiLanHost() {
+		$conf = '/etc/asterisk/sysadmin_server1.conf';
+		if (is_readable($conf)) {
+			$txt = (string) @file_get_contents($conf);
+			if (preg_match('/server\s+(\d+\.\d+\.\d+\.\d+)/', $txt, $m)) {
+				return $m[1];
+			}
+			if (preg_match('/ifconfig-push\s+(\d+\.\d+\.\d+\.\d+)/', $txt, $m)) {
+				return $m[1];
+			}
+		}
+		if (is_readable('/etc/asterisk/openvpn/server1.conf')) {
+			$txt = (string) @file_get_contents('/etc/asterisk/openvpn/server1.conf');
+			if (preg_match('/server\s+(\d+\.\d+\.\d+\.\d+)/', $txt, $m)) {
+				return $m[1];
+			}
+		}
+		return '10.8.0.1';
 	}
 
 	private function writePjsipKeywords($ext, array $kv) {
