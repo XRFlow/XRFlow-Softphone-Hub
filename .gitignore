@@ -1,5 +1,6 @@
 *.tgz
 *.zip
+*.deb
 *.bak
 *.bak.*
 .env

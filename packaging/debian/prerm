@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+
+case "${1:-}" in
+  remove|deconfigure)
+    if command -v fwconsole >/dev/null 2>&1; then
+      fwconsole ma uninstall xrflowsoftphone || true
+    fi
+    if command -v a2disconf >/dev/null 2>&1; then
+      a2disconf xrflow-softphone-hub >/dev/null 2>&1 || true
+      if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet apache2 2>/dev/null; then
+        systemctl reload apache2 || true
+      fi
+    fi
+    rm -f /etc/httpd/conf.d/xrflow-softphone-hub.conf
+    ;;
+esac
+
+exit 0

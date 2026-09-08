@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+case "${1:-}" in
+  purge)
+    rm -rf /var/www/html/admin/modules/xrflowsoftphone
+    ;;
+esac
+
+exit 0

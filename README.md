@@ -13,7 +13,22 @@ Enterprise companion to **XRFlow Softphone**. Install on the customer PBX from M
 - Do **not** put presence-sync write keys or OLA admin tokens in enroll JSON
 - Do **not** commit signed zips or private keys
 
-## Install (lab)
+## Install on FreePBX 17 / Debian 12 (apt)
+
+Sangoma OS 7 and stock FreePBX 17 are Debian 12 (`bookworm`), amd64. Use the XRFlow apt repo (same key as the desktop Softphone):
+
+```bash
+sudo curl -fsSL https://xrflows.com/apt/xrflow.gpg -o /usr/share/keyrings/xrflow.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/xrflow.gpg] https://xrflows.com/apt bookworm main" | sudo tee /etc/apt/sources.list.d/xrflow.list
+sudo apt update
+sudo apt install xrflow-softphone-hub
+```
+
+That drops the module in `/var/www/html/admin/modules/xrflowsoftphone`, runs `fwconsole ma install xrflowsoftphone`, and enables Apache `/xrflow-hub`. Then **Applications → XRFlow Softphone → License** (14-day trial, then a Hub key).
+
+`stable` also carries the same package if this PBX already uses the desktop Softphone source list.
+
+## Install (lab, from git)
 
 ```bash
 sudo ./scripts/install-to-freepbx.sh
@@ -21,7 +36,13 @@ fwconsole ma install xrflowsoftphone
 fwconsole reload
 ```
 
-Apache (for `/xrflow-hub/v1/*`):
+Build a .deb without publishing:
+
+```bash
+./packaging/build-deb.sh
+```
+
+Apache (lab installs without the .deb):
 
 ```
 Alias /xrflow-hub /var/www/html/admin/modules/xrflowsoftphone/public
