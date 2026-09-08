@@ -65,7 +65,7 @@ Description: XRFlow Softphone Hub for FreePBX 17 (Debian 12)
  Does not rewrite System Admin OpenVPN remotes.
 EOF
 
-install -m 0755 "$ROOT/packaging/debian/preinst" "$STAGE/DEBIAN/preinst"
+install -m 0755 "$ROOT/packaging/debian/check-freepbx.sh" "$STAGE/DEBIAN/preinst"
 install -m 0755 "$ROOT/packaging/debian/postinst" "$STAGE/DEBIAN/postinst"
 install -m 0755 "$ROOT/packaging/debian/prerm" "$STAGE/DEBIAN/prerm"
 install -m 0755 "$ROOT/packaging/debian/postrm" "$STAGE/DEBIAN/postrm"

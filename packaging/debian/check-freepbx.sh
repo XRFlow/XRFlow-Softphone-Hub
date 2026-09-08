@@ -1,6 +1,6 @@
 #!/bin/bash
 # Fail closed if this host cannot run the Hub (FreePBX 17 / Debian 12).
-# Used by preinst and postinst. Do not start OpenVPN.
+# Used as DEBIAN/preinst and again from postinst. Do not start OpenVPN.
 set -euo pipefail
 
 err() { echo "xrflow-softphone-hub: $*" >&2; }
@@ -14,11 +14,17 @@ need_cmd() {
   fi
 }
 
-need_php_ext() {
-  local ext="$1"
-  if ! php -m 2>/dev/null | grep -qi "^${ext}$"; then
-    err "PHP extension '${ext}' is not loaded."
-    err "On Debian 12 / FreePBX 17 install: php8.2-${ext} (or the matching php-${ext} package)."
+# Probe actual PHP APIs. Do not grep php -m: PHP 8.2 compiles json into core
+# and Debian 12 has no php8.2-json package.
+need_php() {
+  local what="$1"
+  local hint="$2"
+  local code="$3"
+  if ! php -r "$code" >/dev/null 2>&1; then
+    err "PHP is missing ${what}."
+    if [ -n "$hint" ]; then
+      err "$hint"
+    fi
     exit 1
   fi
 }
@@ -57,12 +63,12 @@ if [ "$MAJOR" -lt 17 ]; then
   exit 1
 fi
 
-need_php_ext curl
-need_php_ext json
-need_php_ext pdo
-need_php_ext pdo_mysql
-need_php_ext mbstring
-need_php_ext xml
+need_php "curl (curl_init)" "Install php8.2-curl (or php-curl)." 'exit(function_exists("curl_init")?0:1);'
+need_php "JSON (json_encode)" "JSON is built into PHP 8; no php-json package. Check that /usr/bin/php is the FreePBX CLI." 'exit(function_exists("json_encode")?0:1);'
+need_php "PDO" "Install php8.2-mysql / php-mysql (provides PDO)." 'exit(class_exists("PDO")?0:1);'
+need_php "PDO mysql driver" "Install php8.2-mysql (or php-mysql)." 'exit(in_array("mysql", PDO::getAvailableDrivers(), true)?0:1);'
+need_php "mbstring" "Install php8.2-mbstring (or php-mbstring)." 'exit(function_exists("mb_strlen")?0:1);'
+need_php "XML/SimpleXML" "Install php8.2-xml (or php-xml)." 'exit((function_exists("simplexml_load_string")||extension_loaded("xml")||extension_loaded("libxml"))?0:1);'
 
 if ! command -v apache2 >/dev/null 2>&1 && ! command -v apache2ctl >/dev/null 2>&1 && ! command -v httpd >/dev/null 2>&1; then
   err "Apache is required (package apache2) so /xrflow-hub can be served."
