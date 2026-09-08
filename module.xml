@@ -1,0 +1,30 @@
+<module>
+	<rawname>xrflowsoftphone</rawname>
+	<repo>unsupported</repo>
+	<name>XRFlow Softphone Hub</name>
+	<version>0.1.0</version>
+	<category>Admin</category>
+	<publisher>XRFlow</publisher>
+	<license>GPLv3+</license>
+	<description>
+		Enterprise Hub for XRFlow Softphone: one-button enroll from this PBX,
+		fleet monitoring, seat administration, and Company Presence proxy.
+		Requires desktop Softphone seats. Activate a Hub license (xrflow_softphone_hub)
+		against xrflows.com after a 14-day trial.
+		Does not rewrite System Admin OpenVPN remotes.
+	</description>
+	<changelog>
+		*0.1.0* Skeleton: license activate, 14-day trial, dashboard, REST 402 gate, WebRTC 488 checklist + template
+	</changelog>
+	<menuitems>
+		<xrflowsoftphone needsenginedb="yes">XRFlow Softphone</xrflowsoftphone>
+	</menuitems>
+	<depends>
+		<version>17.0</version>
+		<module>framework ge 17.0</module>
+		<module>core ge 17.0</module>
+	</depends>
+	<supported>
+		<version>17.0</version>
+	</supported>
+</module>

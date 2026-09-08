@@ -1,0 +1,11 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+This FreePBX/PBXact module is licensed under the GNU GPL v3 or later,
+the same family as FreePBX itself.
+
+A paid Hub license key (product code xrflow_softphone_hub) is required
+to enable enroll and fleet APIs after the 14-day trial. The license key
+is a commercial grant from XRFlow; it does not replace this GPL.
+
+Full text: https://www.gnu.org/licenses/gpl-3.0.txt

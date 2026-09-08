@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xrflows.com/docs/hub-enroll.schema.json",
+  "title": "XRFlow Softphone Hub enroll payload",
+  "description": "Returned by POST /xrflow-hub/v1/enroll/redeem. Never includes presence-sync write keys.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "host": { "type": "string" },
+    "https": { "type": "boolean" },
+    "sipDomain": { "type": "string" },
+    "uriUser": { "type": "string" },
+    "authUser": { "type": "string" },
+    "sipSecret": { "type": "string" },
+    "displayName": { "type": "string" },
+    "sipWebsocketUrl": { "type": "string" },
+    "sipLanWebsocketUrl": { "type": "string" },
+    "sipPreferVpnLan": { "type": "boolean" },
+    "amiHost": { "type": "string" },
+    "amiPort": { "type": "integer" },
+    "amiUsername": { "type": "string" },
+    "amiSecret": { "type": "string" },
+    "oauthClientId": { "type": "string" },
+    "oauthClientSecret": { "type": "string" },
+    "openVpnHint": { "type": "string" },
+    "seatKey": { "type": "string" },
+    "companyPresence": { "type": "boolean" },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "minVersion": { "type": "string" },
+        "lockSettings": { "type": "boolean" }
+      }
+    }
+  }
+}

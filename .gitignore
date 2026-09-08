@@ -1,0 +1,7 @@
+*.tgz
+*.zip
+*.bak
+*.bak.*
+.env
+.DS_Store
+/dist/
