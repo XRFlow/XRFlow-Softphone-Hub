@@ -2,11 +2,12 @@
 	<rawname>xrflowsoftphone</rawname>
 	<repo>unsupported</repo>
 	<name>XRFlow Softphone Hub</name>
-	<version>0.2.1</version>
+	<version>0.2.4</version>
 	<category>Admin</category>
 	<publisher>XRFlow</publisher>
 	<license>GPLv3+</license>
 	<licenselink>https://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
+	<authentication>false</authentication>
 	<info>https://github.com/XRFlow/XRFlow-Softphone-Hub</info>
 	<description>
 		Free GPLv3+ companion for XRFlow Softphone on this FreePBX or PBXact:
@@ -16,6 +17,9 @@
 		Does not rewrite System Admin OpenVPN remotes.
 	</description>
 	<changelog>
+		*0.2.4* Enroll payload includes a dedicated Asterisk AMI user (xrflow-hub) for the desktop app
+		*0.2.3* Public /xrflow-hub/enroll/{token} routes to PHP and redeems (Apache FallbackResource + unauth BMO load)
+		*0.2.2* Enroll table, human WebRTC setup, per-desk OpenVPN, companion softphone device (desk phones unchanged)
 		*0.2.1* Enroll/WebRTC list Core extensions (do not isset() BMO Core; users.extension not users.user)
 		*0.2.0* Free GPLv3+ companion: no Hub license key, no trial, no HTTP 402. Desktop seats remain commercial. Sangoma GPG signing prep.
 		*0.1.3* preinst probes PHP APIs (json_encode, curl_init, PDO mysql) — JSON is core in PHP 8, not php8.2-json
@@ -30,6 +34,7 @@
 		<version>17.0</version>
 		<module>framework ge 17.0</module>
 		<module>core ge 17.0</module>
+		<module>manager</module>
 	</depends>
 	<supported>
 		<version>17.0</version>
@@ -40,6 +45,7 @@
 			<field name="token_hash" type="string" length="64" default=""/>
 			<field name="extension" type="string" length="20" default=""/>
 			<field name="override_compliance" type="boolean" default="0"/>
+			<field name="need_openvpn" type="boolean" default="0"/>
 			<field name="created_at" type="integer" default="0"/>
 			<field name="expires_at" type="integer" default="0"/>
 			<field name="redeemed_at" type="integer" notnull="false"/>

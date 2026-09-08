@@ -26,7 +26,7 @@ $view = $view ?? 'compliance';
 					<?php } ?>
 
 					<p class="text-muted" style="margin-top:1rem;">
-						<?php echo _("This is the 488 checklist: AVPF, ICE, rtcp-mux, DTLS-SRTP, Direct Media=No, webrtc, dtls_auto_generate_cert. Enroll will refuse non-compliant extensions unless you override (logged).") ?>
+						<?php echo _("Hub adds a separate softphone device next to the desk phone. The desk phone’s SIP settings are not changed, so a Yealink/Poly on the same extension keeps working.") ?>
 					</p>
 					<p class="small"><?php echo htmlspecialchars($ovpn) ?></p>
 
@@ -38,31 +38,38 @@ $view = $view ?? 'compliance';
 									<th></th>
 									<th><?php echo _("Ext") ?></th>
 									<th><?php echo _("Name") ?></th>
-									<th><?php echo _("WebRTC") ?></th>
-									<th><?php echo _("Issues") ?></th>
+									<th><?php echo _("Desk phone") ?></th>
+									<th><?php echo _("Softphone") ?></th>
+									<th><?php echo _("Notes") ?></th>
 								</tr>
 							</thead>
 							<tbody>
 							<?php foreach ($rows as $row) { ?>
 								<tr>
-									<td><input type="checkbox" name="ext[]" value="<?php echo htmlspecialchars($row['extension']) ?>"/></td>
+									<td><input type="checkbox" name="ext[]" value="<?php echo htmlspecialchars($row['extension']) ?>" <?php echo empty($row['ok']) ? 'checked' : '' ?>/></td>
 									<td><?php echo htmlspecialchars($row['extension']) ?></td>
 									<td><?php echo htmlspecialchars($row['name']) ?></td>
-									<td><?php echo !empty($row['ok']) ? _("OK") : _("Needs repair") ?></td>
+									<td><?php echo !empty($row['desk_phone']) ? _("Left as-is") : _("None") ?></td>
+									<td>
+										<?php if (!empty($row['ok'])) { ?>
+											<span class="label label-success"><?php echo _("Ready") ?></span>
+											<?php if (!empty($row['softphone_device'])) { ?>
+												<code><?php echo htmlspecialchars($row['softphone_device']) ?></code>
+											<?php } ?>
+										<?php } else { ?>
+											<span class="label label-warning"><?php echo _("Needs setup") ?></span>
+										<?php } ?>
+									</td>
 									<td class="small"><?php echo htmlspecialchars(implode('; ', $row['issues'])) ?></td>
 								</tr>
 							<?php } ?>
 							<?php if (!$rows) { ?>
-								<tr><td colspan="5"><?php echo _("No extensions found.") ?></td></tr>
+								<tr><td colspan="6"><?php echo _("No extensions found.") ?></td></tr>
 							<?php } ?>
 							</tbody>
 						</table>
-						<label class="small">
-							<input type="checkbox" name="force_override" value="1"/>
-							<?php echo _("Log an enroll override for selected extensions (still apply template now)") ?>
-						</label>
 						<div style="margin-top:0.75rem;">
-							<button type="submit" class="btn btn-primary"><?php echo _("Apply XRFlow WebRTC template") ?></button>
+							<button type="submit" class="btn btn-primary"><?php echo _("Set up selected softphones") ?></button>
 						</div>
 					</form>
 				</div>

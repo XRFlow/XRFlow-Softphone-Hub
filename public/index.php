@@ -7,9 +7,20 @@
  *
  * Apache alias (packaging/apache/xrflow-softphone-hub.conf):
  *   Alias /xrflow-hub /var/www/html/admin/modules/xrflowsoftphone/public
+ *   FallbackResource /xrflow-hub/index.php
  */
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store');
+
+$bootstrap_settings = [
+	'freepbx_auth' => false,
+];
+$restrict_mods = [
+	'xrflowsoftphone' => true,
+	'core' => true,
+	'manager' => true,
+];
 
 $bootstrap = '/etc/freepbx.conf';
 if (!is_readable($bootstrap)) {
@@ -19,19 +30,29 @@ if (!is_readable($bootstrap)) {
 }
 
 include $bootstrap;
+
+$hub = null;
 try {
-	$hub = FreePBX::Xrflowsoftphone();
+	$hub = \FreePBX::create()->Xrflowsoftphone();
 } catch (Throwable $e) {
-	http_response_code(503);
-	echo json_encode(['error' => 'module_unavailable']);
-	exit;
+	try {
+		require_once dirname(__DIR__) . '/Xrflowsoftphone.class.php';
+		$hub = new \FreePBX\modules\Xrflowsoftphone(\FreePBX::create());
+	} catch (Throwable $e2) {
+		http_response_code(503);
+		echo json_encode(['error' => 'module_unavailable']);
+		exit;
+	}
 }
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $path = preg_replace('#^/xrflow-hub#', '', (string) $path);
 $path = '/' . ltrim((string) $path, '/');
+if ($path === '/index.php') {
+	$path = '/';
+}
 
-if ($path === '/v1/health' || $path === '/health') {
+if ($path === '/v1/health' || $path === '/health' || $path === '/') {
 	$st = $hub->hubStatus();
 	echo json_encode([
 		'ok' => true,
@@ -46,13 +67,7 @@ if ($path === '/v1/health' || $path === '/health') {
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 
-if ($method === 'POST' && preg_match('#^/v1/enroll/redeem/?$#', $path)) {
-	$rawBody = file_get_contents('php://input');
-	$data = json_decode((string) $rawBody, true);
-	$token = is_array($data) ? (string) ($data['token'] ?? '') : '';
-	if ($token === '' && isset($_POST['token'])) {
-		$token = (string) $_POST['token'];
-	}
+$sendRedeem = static function ($hub, $token) {
 	$result = $hub->redeemEnrollToken($token);
 	if (empty($result['ok'])) {
 		http_response_code((int) ($result['http'] ?? 400));
@@ -61,20 +76,24 @@ if ($method === 'POST' && preg_match('#^/v1/enroll/redeem/?$#', $path)) {
 	}
 	echo json_encode($result['payload']);
 	exit;
+};
+
+if ($method === 'POST' && preg_match('#^/v1/enroll/redeem/?$#', $path)) {
+	$rawBody = file_get_contents('php://input');
+	$data = json_decode((string) $rawBody, true);
+	$token = is_array($data) ? (string) ($data['token'] ?? '') : '';
+	if ($token === '' && isset($_POST['token'])) {
+		$token = (string) $_POST['token'];
+	}
+	$sendRedeem($hub, $token);
 }
 
-if ($method === 'GET' && preg_match('#^/enroll/([0-9a-f]{32})/?$#', $path, $m)) {
-	echo json_encode([
-		'ok' => true,
-		'hint' => 'POST /xrflow-hub/v1/enroll/redeem with {"token":"..."} from the desktop app.',
-		'token_length' => strlen($m[1]),
-	]);
-	exit;
+if (preg_match('#^/enroll/([0-9a-f]{32})/?$#', $path, $m)) {
+	$sendRedeem($hub, $m[1]);
 }
 
-http_response_code(501);
+http_response_code(404);
 echo json_encode([
-	'error' => 'not_implemented',
+	'error' => 'not_found',
 	'path' => $path,
-	'message' => 'Heartbeat and presence proxy land in later Hub versions.',
 ]);

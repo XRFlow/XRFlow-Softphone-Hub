@@ -31,6 +31,13 @@ $view = $view ?? 'dashboard';
 								<div class="panel-body">
 									<p><?php echo _("Free") ?> · <code>GPLv3+</code></p>
 									<p class="small text-muted"><?php echo _("Deployment") ?>: <code><?php echo htmlspecialchars($status['deployment_uuid'] ?? '') ?></code></p>
+									<?php if (!empty($status['ami_ready'])) { ?>
+										<p><?php echo _("Asterisk AMI for desktops") ?>: <code><?php echo htmlspecialchars((string) ($status['ami_user'] ?? 'xrflow-hub')) ?></code>
+											:<?php echo (int) ($status['ami_port'] ?? 5038) ?></p>
+										<p class="small text-muted"><?php echo _("Enroll sends this AMI login to the app. Allowed from the office LAN and OpenVPN, not the public internet. Apply Config after the first install.") ?></p>
+									<?php } else { ?>
+										<p class="text-warning"><?php echo _("Asterisk AMI user is not ready. Open Settings → Asterisk Manager Users or reinstall this module, then Apply Config.") ?></p>
+									<?php } ?>
 								</div>
 							</div>
 						</div>
