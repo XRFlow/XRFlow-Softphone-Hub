@@ -60,6 +60,12 @@ sudo apt install --only-upgrade xrflow-softphone-hub
 
 SIP passwords travel only when the app redeems the code over HTTPS. Do not paste enroll codes into email threads that sit around; they are short-lived on purpose.
 
+If **Enroll** or **WebRTC** shows no extensions, confirm **Applications → Extensions** has users, then reload FreePBX. Hub 0.2.1 and later lists Core extensions on FreePBX 17.
+
+If generate enroll says the extension fails WebRTC checks, go back to the **WebRTC** tab, apply the template, **Apply Config**, and try again. The override checkbox on Enroll is a logged exception — use repair first.
+
+Repair writes these PJSIP settings on the extensions you select: `webrtc=yes`, `avpf=yes`, `icesupport=yes`, `rtcp_mux=yes`, `media_encryption=dtls`, `dtls_auto_generate_cert=yes`, `direct_media=no`, `media_use_received_transport=yes`.
+
 ## What Hub will not change
 
 Hub does **not** rewrite System Admin OpenVPN files, Easy-RSA, or `sysadmin_server1.conf`. Use the `.ovpn` System Admin already issued. Remotes stay as exported.
