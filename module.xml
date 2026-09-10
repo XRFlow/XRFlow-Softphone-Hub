@@ -2,7 +2,7 @@
 	<rawname>xrflowsoftphone</rawname>
 	<repo>unsupported</repo>
 	<name>XRFlow Softphone Hub</name>
-	<version>0.2.4</version>
+	<version>0.2.5</version>
 	<category>Admin</category>
 	<publisher>XRFlow</publisher>
 	<license>GPLv3+</license>
@@ -17,6 +17,8 @@
 		Does not rewrite System Admin OpenVPN remotes.
 	</description>
 	<changelog>
+		*0.2.5* POST /xrflow-hub/v1/user-profile returns User Manager / voicemail email for Gravatar (SIP-secret auth)
+		*0.2.5* POST /xrflow-hub/v1/user-profile returns User Manager / voicemail email for Gravatar (SIP-secret auth)
 		*0.2.4* Enroll payload includes a dedicated Asterisk AMI user (xrflow-hub) for the desktop app
 		*0.2.3* Public /xrflow-hub/enroll/{token} routes to PHP and redeems (Apache FallbackResource + unauth BMO load)
 		*0.2.2* Enroll table, human WebRTC setup, per-desk OpenVPN, companion softphone device (desk phones unchanged)

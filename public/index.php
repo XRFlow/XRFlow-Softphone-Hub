@@ -92,6 +92,31 @@ if (preg_match('#^/enroll/([0-9a-f]{32})/?$#', $path, $m)) {
 	$sendRedeem($hub, $m[1]);
 }
 
+if ($method === 'POST' && preg_match('#^/v1/user-profile/?$#', $path)) {
+	$rawBody = file_get_contents('php://input');
+	$data = json_decode((string) $rawBody, true);
+	if (!is_array($data)) {
+		$data = $_POST;
+	}
+	$result = $hub->userProfile(
+		(string) ($data['extension'] ?? ''),
+		(string) ($data['secret'] ?? '')
+	);
+	if (empty($result['ok'])) {
+		http_response_code((int) ($result['http'] ?? 400));
+		echo json_encode(['error' => $result['error'] ?? 'profile_failed']);
+		exit;
+	}
+	echo json_encode([
+		'ok' => true,
+		'extension' => $result['extension'] ?? '',
+		'user_extension' => $result['user_extension'] ?? '',
+		'email' => $result['email'] ?? '',
+		'name' => $result['name'] ?? '',
+	]);
+	exit;
+}
+
 http_response_code(404);
 echo json_encode([
 	'error' => 'not_found',
