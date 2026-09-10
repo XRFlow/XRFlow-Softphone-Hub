@@ -63,6 +63,8 @@ SIP passwords and the desktop AMI login travel only when the app redeems the cod
 
 Hub creates an Asterisk Manager user named `xrflow-hub` (not the FreePBX admin AMI login). The app uses it for call events. That user is allowed from localhost, the office LAN, and OpenVPN. It is not opened to the whole internet. After the first Hub install, click **Apply Config** so Asterisk loads the AMI user.
 
+Hub also creates a PBX **API** application named **XRFlow Softphone Hub** (Admin → API). Enroll sends that Client ID and secret so the desktop can load **Contacts** (REST/GraphQL). FreePBX only stores a hash of the secret; Hub keeps the plaintext for enroll and does not send Company Presence or Odoo API keys.
+
 If **Enroll** shows no people, confirm **Applications → Extensions** has users, then reload FreePBX.
 
 ### Desk phones stay working

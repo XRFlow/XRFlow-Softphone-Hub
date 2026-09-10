@@ -38,6 +38,12 @@ $view = $view ?? 'dashboard';
 									<?php } else { ?>
 										<p class="text-warning"><?php echo _("Asterisk AMI user is not ready. Open Settings → Asterisk Manager Users or reinstall this module, then Apply Config.") ?></p>
 									<?php } ?>
+									<?php if (!empty($status['oauth_ready'])) { ?>
+										<p><?php echo _("PBX API (Contacts)") ?>: <code><?php echo htmlspecialchars((string) ($status['oauth_client_id'] ?? '')) ?></code></p>
+										<p class="small text-muted"><?php echo _("Enroll sends this Admin → API Client ID and secret to the desktop for the company directory. Listed as “XRFlow Softphone Hub”.") ?></p>
+									<?php } else { ?>
+										<p class="text-warning"><?php echo _("PBX API client is not ready. Install/enable the API module (Admin → API), then reload this page.") ?></p>
+									<?php } ?>
 								</div>
 							</div>
 						</div>

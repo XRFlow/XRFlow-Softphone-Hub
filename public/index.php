@@ -20,6 +20,7 @@ $restrict_mods = [
 	'xrflowsoftphone' => true,
 	'core' => true,
 	'manager' => true,
+	'api' => true,
 ];
 
 $bootstrap = '/etc/freepbx.conf';

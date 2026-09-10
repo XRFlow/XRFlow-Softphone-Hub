@@ -37,6 +37,8 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 	public const SOFTPHONE_PREFIX = '97';
 	public const AMI_USER = 'xrflow-hub';
 	public const AMI_ACL = 'system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate';
+	public const OAUTH_APP_NAME = 'XRFlow Softphone Hub';
+	public const OAUTH_SCOPES = 'gql,rest';
 
 	public function __construct($freepbx = null) {
 		$this->FreePBX = $freepbx ?: \FreePBX::create();
@@ -48,6 +50,7 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 		}
 		$this->installTables();
 		$this->ensureAmiUser();
+		$this->ensureOauthClient();
 	}
 
 	private function installTables() {
@@ -174,6 +177,8 @@ SQL;
 			$this->setConfig('deployment_uuid', $uuid);
 		}
 		$ami = $this->ensureAmiUser();
+		$oauth = $this->ensureOauthClient();
+		$oauthId = (string) ($oauth['client_id'] ?? '');
 		return [
 			'module' => self::MODULE_RAWNAME,
 			'license' => self::LICENSE,
@@ -188,6 +193,8 @@ SQL;
 			'ami_user' => $ami['username'] ?? '',
 			'ami_port' => $ami['port'] ?? 5038,
 			'ami_ready' => $ami !== [] && ($ami['secret'] ?? '') !== '',
+			'oauth_ready' => ($oauth['client_secret'] ?? '') !== '' && $oauthId !== '',
+			'oauth_client_id' => $oauthId,
 		];
 	}
 
@@ -545,6 +552,7 @@ SQL;
 			: '';
 		$ami = $this->ensureAmiUser();
 		$amiHost = $needVpn ? $amiLan : $this->amiOfficeHost();
+		$oauth = $this->ensureOauthClient();
 		return [
 			'host' => $host,
 			'https' => true,
@@ -560,6 +568,8 @@ SQL;
 			'amiPort' => (int) ($ami['port'] ?? 5038),
 			'amiUsername' => (string) ($ami['username'] ?? self::AMI_USER),
 			'amiSecret' => (string) ($ami['secret'] ?? ''),
+			'oauthClientId' => (string) ($oauth['client_id'] ?? ''),
+			'oauthClientSecret' => (string) ($oauth['client_secret'] ?? ''),
 			'openVpnHint' => $vpnHint,
 			'policy' => ['minVersion' => '0.2.25', 'lockSettings' => true],
 		];
@@ -747,6 +757,94 @@ SQL;
 	}
 
 	/**
+	 * PBX API (Admin → API) client_credentials app for desktop Contacts.
+	 * FreePBX stores only a hash of client_secret, so plaintext is kept in Hub config.
+	 *
+	 * @return array{client_id:string,client_secret:string}
+	 */
+	private function ensureOauthClient() {
+		$empty = ['client_id' => '', 'client_secret' => ''];
+		$id = (string) $this->getConfig('oauth_client_id');
+		$secret = (string) $this->getConfig('oauth_client_secret');
+		if ($id !== '' && $secret !== '' && $this->oauthClientValid($id, $secret)) {
+			return ['client_id' => $id, 'client_secret' => $secret];
+		}
+		try {
+			$api = $this->FreePBX->Api;
+			if (!is_object($api)) {
+				return $empty;
+			}
+			$apps = $api->applications;
+			if (!is_object($apps) || !method_exists($apps, 'add')) {
+				return $empty;
+			}
+			$existing = $this->oauthAppByName($apps, self::OAUTH_APP_NAME);
+			if ($existing && $id === (string) $existing['client_id'] && $secret !== '' && $this->oauthSecretMatches($existing, $secret)) {
+				return ['client_id' => $id, 'client_secret' => $secret];
+			}
+			if ($existing && !empty($existing['client_id'])) {
+				$created = $apps->regenerate((int) ($existing['owner'] ?? 0), (string) $existing['client_id']);
+			} else {
+				$created = $apps->add(
+					0,
+					'client_credentials',
+					self::OAUTH_APP_NAME,
+					'Desktop enroll: Contacts directory (REST/GraphQL). Created by XRFlow Softphone Hub.',
+					null,
+					null,
+					self::OAUTH_SCOPES
+				);
+			}
+			$newId = (string) ($created['client_id'] ?? '');
+			$newSecret = (string) ($created['client_secret'] ?? '');
+			if ($newId === '' || $newSecret === '') {
+				return $empty;
+			}
+			$this->setConfig('oauth_client_id', $newId);
+			$this->setConfig('oauth_client_secret', $newSecret);
+			return ['client_id' => $newId, 'client_secret' => $newSecret];
+		} catch (\Throwable $e) {
+			return $empty;
+		}
+	}
+
+	private function oauthAppByName($apps, $name) {
+		try {
+			foreach ((array) $apps->getAll() as $row) {
+				if (is_array($row) && (string) ($row['name'] ?? '') === $name) {
+					return $row;
+				}
+			}
+		} catch (\Throwable $e) {
+			return null;
+		}
+		return null;
+	}
+
+	private function oauthClientValid($clientId, $secret) {
+		try {
+			$st = $this->FreePBX->Database->prepare('SELECT client_secret, algo FROM api_applications WHERE client_id = ? LIMIT 1');
+			$st->execute([$clientId]);
+			$row = $st->fetch(\PDO::FETCH_ASSOC);
+			return is_array($row) && $this->oauthSecretMatches($row, $secret);
+		} catch (\Throwable $e) {
+			return false;
+		}
+	}
+
+	private function oauthSecretMatches(array $row, $plain) {
+		$hash = (string) ($row['client_secret'] ?? '');
+		$algo = (string) ($row['algo'] ?? 'sha256');
+		if ($hash === '' || $plain === '') {
+			return false;
+		}
+		if (!in_array($algo, ['sha256', 'sha1', 'md5'], true)) {
+			$algo = 'sha256';
+		}
+		return hash($algo, $plain) === $hash;
+	}
+
+	/**
 	 * Dedicated AMI user for enrolled desktops. Not the FreePBX admin manager
 	 * user. Allowed from localhost, office LAN, and OpenVPN only.
 	 *
@@ -758,6 +856,7 @@ SQL;
 		$row = $this->amiUserRow($name);
 		$permit = implode('&', $this->amiPermitNets());
 		if ($row) {
+			$this->syncAmiUserPermit($name, $permit, (string) ($row['permit'] ?? ''));
 			return [
 				'username' => (string) $row['name'],
 				'secret' => (string) $row['secret'],
@@ -848,24 +947,81 @@ SQL;
 		return '127.0.0.1';
 	}
 
+	private function syncAmiUserPermit($name, $permit, $current = '') {
+		if ($permit === '' || $permit === $current) {
+			return;
+		}
+		try {
+			$st = $this->FreePBX->Database->prepare('UPDATE manager SET permit = ? WHERE name = ?');
+			$st->execute([$permit, $name]);
+			needreload();
+		} catch (\Throwable $e) {
+			// Keep the existing secret; Apply Config / manager reload picks up permit.
+		}
+	}
+
 	private function amiPermitNets() {
 		$nets = ['127.0.0.1/255.255.255.0'];
 		$seen = ['127.0.0.1/255.255.255.0' => true];
-		foreach ($this->lanIpv4s() as $row) {
-			$permit = $row['network'] . '/' . $row['mask'];
-			if (!isset($seen[$permit])) {
-				$nets[] = $permit;
-				$seen[$permit] = true;
+		$add = function ($permit) use (&$nets, &$seen) {
+			if ($permit === '' || isset($seen[$permit])) {
+				return;
 			}
+			$nets[] = $permit;
+			$seen[$permit] = true;
+		};
+		foreach ($this->lanIpv4s() as $row) {
+			$add($row['network'] . '/' . $row['mask']);
 		}
 		$ovpn = $this->amiLanHost();
 		if (preg_match('/^(\d+\.\d+\.\d+)\.\d+$/', $ovpn, $m)) {
-			$permit = $m[1] . '.0/255.255.255.0';
-			if (!isset($seen[$permit])) {
-				$nets[] = $permit;
-			}
+			$add($m[1] . '.0/255.255.255.0');
+		}
+		foreach ($this->pjsipLocalNets() as $permit) {
+			$add($permit);
 		}
 		return $nets;
+	}
+
+	/**
+	 * Office IPsec / other local_net CIDRs from PJSIP (Asterisk manager uses netmask form).
+	 *
+	 * @return list<string>
+	 */
+	private function pjsipLocalNets() {
+		$out = [];
+		foreach (['/etc/asterisk/pjsip.transports.conf', '/etc/asterisk/pjsip.transports_custom.conf'] as $f) {
+			if (!is_readable($f)) {
+				continue;
+			}
+			$txt = (string) @file_get_contents($f);
+			if (!preg_match_all('/^\s*local_net\s*=\s*(\S+)/mi', $txt, $m)) {
+				continue;
+			}
+			foreach ($m[1] as $cidr) {
+				$permit = $this->cidrToAmiPermit($cidr);
+				if ($permit !== '') {
+					$out[] = $permit;
+				}
+			}
+		}
+		return $out;
+	}
+
+	private function cidrToAmiPermit($cidr) {
+		$cidr = trim((string) $cidr);
+		if (preg_match('/^(\d+\.\d+\.\d+\.\d+)\/(\d+\.\d+\.\d+\.\d+)$/', $cidr, $m)) {
+			return $m[1] . '/' . $m[2];
+		}
+		if (!preg_match('/^(\d+\.\d+\.\d+\.\d+)\/(\d{1,2})$/', $cidr, $m)) {
+			return '';
+		}
+		$prefix = (int) $m[2];
+		if ($prefix < 0 || $prefix > 32) {
+			return '';
+		}
+		$maskLong = $prefix === 0 ? 0 : ((0xffffffff << (32 - $prefix)) & 0xffffffff);
+		return $m[1] . '/' . long2ip($maskLong);
 	}
 
 	/**
