@@ -1060,6 +1060,144 @@ SQL;
 		return $out;
 	}
 
+	/**
+	 * Directory email/name for a softphone device (97/98/99 + user ext).
+	 * Auth: PJSIP/SIP secret for that device. Used for Gravatar without OAuth.
+	 *
+	 * @return array{ok:bool,http?:int,error?:string,email?:string,name?:string,user_extension?:string}
+	 */
+	public function userProfile($extension, $secret) {
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $extension);
+		$secret = (string) $secret;
+		if ($ext === '' || $secret === '') {
+			return ['ok' => false, 'http' => 400, 'error' => 'missing_credentials'];
+		}
+		$stored = (string) ($this->pjsipKeywords($ext)['secret'] ?? '');
+		if ($stored === '' || !hash_equals($stored, $secret)) {
+			return ['ok' => false, 'http' => 401, 'error' => 'auth_failed'];
+		}
+		$found = $this->lookupUserDirectoryProfile($ext);
+		return [
+			'ok' => true,
+			'extension' => $ext,
+			'user_extension' => $found['user_extension'] ?? $ext,
+			'email' => $found['email'] ?? '',
+			'name' => $found['name'] ?? '',
+		];
+	}
+
+	/**
+	 * @return array{email:string,name:string,user_extension:string}
+	 */
+	private function lookupUserDirectoryProfile($deviceExt) {
+		$ids = [$deviceExt];
+		if (preg_match('/^(97|98|99)(\d{3,6})$/', $deviceExt, $m)) {
+			$ids[] = $m[2];
+		}
+		$ids = array_values(array_unique($ids));
+		$out = ['email' => '', 'name' => '', 'user_extension' => $ids[count($ids) - 1]];
+
+		try {
+			$um = $this->FreePBX->Userman;
+			if (is_object($um)) {
+				foreach ($ids as $id) {
+					$user = null;
+					if (method_exists($um, 'getUserByDefaultExtension')) {
+						$user = $um->getUserByDefaultExtension($id);
+					}
+					if ((!is_array($user) || empty($user['email'])) && method_exists($um, 'getUserByUsername')) {
+						$user = $um->getUserByUsername($id);
+					}
+					if (is_array($user)) {
+						$email = trim((string) ($user['email'] ?? ''));
+						$fname = trim((string) ($user['fname'] ?? ''));
+						$lname = trim((string) ($user['lname'] ?? ''));
+						$disp = trim($fname . ' ' . $lname);
+						if ($disp === '') {
+							$disp = trim((string) ($user['displayname'] ?? $user['username'] ?? ''));
+						}
+						if ($email !== '' && strpos($email, '@') !== false) {
+							$out['email'] = $email;
+							$out['name'] = $disp;
+							$out['user_extension'] = (string) ($user['default_extension'] ?? $id);
+							return $out;
+						}
+						if ($disp !== '' && $out['name'] === '') {
+							$out['name'] = $disp;
+						}
+					}
+				}
+				if (method_exists($um, 'getAllUsers') && $out['email'] === '') {
+					foreach ((array) $um->getAllUsers() as $user) {
+						if (!is_array($user)) {
+							continue;
+						}
+						$def = (string) ($user['default_extension'] ?? '');
+						$userName = (string) ($user['username'] ?? '');
+						if (!in_array($def, $ids, true) && !in_array($userName, $ids, true)) {
+							continue;
+						}
+						$email = trim((string) ($user['email'] ?? ''));
+						if ($email !== '' && strpos($email, '@') !== false) {
+							$out['email'] = $email;
+							$fname = trim((string) ($user['fname'] ?? ''));
+							$lname = trim((string) ($user['lname'] ?? ''));
+							$out['name'] = trim($fname . ' ' . $lname);
+							$out['user_extension'] = $def !== '' ? $def : $userName;
+							return $out;
+						}
+					}
+				}
+			}
+		} catch (\Throwable $e) {
+			// SQL fallback
+		}
+
+		try {
+			$db = $this->FreePBX->Database;
+			$placeholders = implode(',', array_fill(0, count($ids), '?'));
+			try {
+				$st = $db->prepare(
+					"SELECT email, fname, lname, username, default_extension FROM userman_users
+					 WHERE default_extension IN ($placeholders) OR username IN ($placeholders)"
+				);
+				$st->execute(array_merge($ids, $ids));
+				foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+					$email = trim((string) ($row['email'] ?? ''));
+					if ($email !== '' && strpos($email, '@') !== false) {
+						$out['email'] = $email;
+						$out['name'] = trim((string) ($row['fname'] ?? '') . ' ' . (string) ($row['lname'] ?? ''));
+						$out['user_extension'] = (string) ($row['default_extension'] ?? $row['username'] ?? $out['user_extension']);
+						return $out;
+					}
+				}
+			} catch (\Throwable $e) {
+				// table name may differ
+			}
+			try {
+				$st = $db->prepare("SELECT mailbox, email, fullname FROM voicemail WHERE mailbox IN ($placeholders)");
+				$st->execute($ids);
+				foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+					$email = trim((string) ($row['email'] ?? ''));
+					if ($email !== '' && strpos($email, '@') !== false) {
+						$out['email'] = $email;
+						$name = trim((string) ($row['fullname'] ?? ''));
+						if ($name !== '') {
+							$out['name'] = $name;
+						}
+						$out['user_extension'] = (string) ($row['mailbox'] ?? $out['user_extension']);
+						return $out;
+					}
+				}
+			} catch (\Throwable $e) {
+				// voicemail table missing
+			}
+		} catch (\Throwable $e) {
+			// ignore
+		}
+		return $out;
+	}
+
 	private function newUuid() {
 		$data = random_bytes(16);
 		$data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
