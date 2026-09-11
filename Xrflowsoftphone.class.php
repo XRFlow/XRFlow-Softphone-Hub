@@ -1066,9 +1066,10 @@ SQL;
 	 *
 	 * @return array{ok:bool,http?:int,error?:string,email?:string,name?:string,user_extension?:string}
 	 */
-	public function userProfile($extension, $secret) {
+	public function userProfile($extension, $secret, $hintName = '') {
 		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $extension);
 		$secret = (string) $secret;
+		$hintName = trim((string) $hintName);
 		if ($ext === '' || $secret === '') {
 			return ['ok' => false, 'http' => 400, 'error' => 'missing_credentials'];
 		}
@@ -1076,7 +1077,7 @@ SQL;
 		if ($stored === '' || !hash_equals($stored, $secret)) {
 			return ['ok' => false, 'http' => 401, 'error' => 'auth_failed'];
 		}
-		$found = $this->lookupUserDirectoryProfile($ext);
+		$found = $this->lookupUserDirectoryProfile($ext, $hintName);
 		return [
 			'ok' => true,
 			'extension' => $ext,
@@ -1089,7 +1090,7 @@ SQL;
 	/**
 	 * @return array{email:string,name:string,user_extension:string}
 	 */
-	private function lookupUserDirectoryProfile($deviceExt) {
+	private function lookupUserDirectoryProfile($deviceExt, $hintName = '') {
 		$ids = [$deviceExt];
 		if (preg_match('/^(97|98|99)(\d{3,6})$/', $deviceExt, $m)) {
 			$ids[] = $m[2];
@@ -1128,20 +1129,27 @@ SQL;
 					}
 				}
 				if (method_exists($um, 'getAllUsers') && $out['email'] === '') {
+					$hint = strtolower(trim($hintName));
 					foreach ((array) $um->getAllUsers() as $user) {
 						if (!is_array($user)) {
 							continue;
 						}
 						$def = (string) ($user['default_extension'] ?? '');
 						$userName = (string) ($user['username'] ?? '');
-						if (!in_array($def, $ids, true) && !in_array($userName, $ids, true)) {
+						$fname = trim((string) ($user['fname'] ?? ''));
+						$lname = trim((string) ($user['lname'] ?? ''));
+						$disp = strtolower(trim($fname . ' ' . $lname));
+						$assigned = (array) ($user['assigned'] ?? $user['extensions'] ?? []);
+						$assignedStr = array_map('strval', $assigned);
+						$matchExt = in_array($def, $ids, true) || in_array($userName, $ids, true)
+							|| count(array_intersect($assignedStr, $ids)) > 0;
+						$matchName = $hint !== '' && $disp !== '' && ($disp === $hint || strpos($disp, $hint) !== false || strpos($hint, $disp) !== false);
+						if (!$matchExt && !$matchName) {
 							continue;
 						}
 						$email = trim((string) ($user['email'] ?? ''));
 						if ($email !== '' && strpos($email, '@') !== false) {
 							$out['email'] = $email;
-							$fname = trim((string) ($user['fname'] ?? ''));
-							$lname = trim((string) ($user['lname'] ?? ''));
 							$out['name'] = trim($fname . ' ' . $lname);
 							$out['user_extension'] = $def !== '' ? $def : $userName;
 							return $out;
@@ -1169,6 +1177,22 @@ SQL;
 						$out['name'] = trim((string) ($row['fname'] ?? '') . ' ' . (string) ($row['lname'] ?? ''));
 						$out['user_extension'] = (string) ($row['default_extension'] ?? $row['username'] ?? $out['user_extension']);
 						return $out;
+					}
+				}
+				if ($hintName !== '' && $out['email'] === '') {
+					$st = $db->prepare(
+						"SELECT email, fname, lname, username, default_extension FROM userman_users
+						 WHERE LOWER(TRIM(CONCAT(IFNULL(fname,''), ' ', IFNULL(lname,'')))) = LOWER(?)"
+					);
+					$st->execute([$hintName]);
+					foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+						$email = trim((string) ($row['email'] ?? ''));
+						if ($email !== '' && strpos($email, '@') !== false) {
+							$out['email'] = $email;
+							$out['name'] = trim((string) ($row['fname'] ?? '') . ' ' . (string) ($row['lname'] ?? ''));
+							$out['user_extension'] = (string) ($row['default_extension'] ?? $row['username'] ?? $out['user_extension']);
+							return $out;
+						}
 					}
 				}
 			} catch (\Throwable $e) {

@@ -101,7 +101,8 @@ if ($method === 'POST' && preg_match('#^/v1/user-profile/?$#', $path)) {
 	}
 	$result = $hub->userProfile(
 		(string) ($data['extension'] ?? ''),
-		(string) ($data['secret'] ?? '')
+		(string) ($data['secret'] ?? ''),
+		(string) ($data['name'] ?? '')
 	);
 	if (empty($result['ok'])) {
 		http_response_code((int) ($result['http'] ?? 400));
