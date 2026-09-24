@@ -22,6 +22,8 @@ namespace FreePBX\modules;
 use BMO;
 use FreePBX_Helpers;
 
+require_once __DIR__ . '/XrflowCorporateLogo.php';
+
 /**
  * Free GPLv3+ companion to the commercial XRFlow Softphone desktop client.
  *
@@ -30,6 +32,7 @@ use FreePBX_Helpers;
  * This module is not sold and does not require a Hub license key.
  */
 class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
+	use XrflowCorporateLogo;
 
 	public const MODULE_RAWNAME = 'xrflowsoftphone';
 	public const LICENSE = 'GPLv3+';
@@ -99,6 +102,22 @@ SQL;
 			$_SESSION['xrflow_hub_flash'] = $this->applyWebrtcTemplate($exts, $override);
 			return;
 		}
+		if ($action === 'save_logo') {
+			$result = $this->saveCorporateLogoUpload($_FILES['logo'] ?? [], (string) ($_POST['company_name'] ?? ''));
+			$_SESSION['xrflow_hub_flash'] = [
+				'ok' => !empty($result['ok']),
+				'message' => (string) ($result['message'] ?? 'Could not save the logo.'),
+			];
+			return;
+		}
+		if ($action === 'clear_logo') {
+			$this->clearCorporateLogo();
+			$_SESSION['xrflow_hub_flash'] = [
+				'ok' => true,
+				'message' => 'Corporate logo removed. Softphones will show the XRFlow mark again.',
+			];
+			return;
+		}
 		if ($action === 'enroll' || $action === 'enroll_repair') {
 			$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) ($_POST['enroll_ext'] ?? ''));
 			$override = !empty($_POST['enroll_override']);
@@ -133,7 +152,7 @@ SQL;
 		if ($view === 'license') {
 			$view = 'about';
 		}
-		$allowed = ['dashboard', 'about', 'compliance', 'enroll'];
+		$allowed = ['dashboard', 'about', 'compliance', 'enroll', 'branding'];
 		if (!in_array($view, $allowed, true)) {
 			$view = 'dashboard';
 		}
@@ -146,6 +165,9 @@ SQL;
 			'openvpnHint' => $this->openVpnSubnetHint(),
 			'extensions' => $view === 'enroll' ? $this->listExtensions() : [],
 			'vpnByExt' => $view === 'enroll' ? $this->vpnMap() : [],
+			'logoMeta' => $view === 'branding' ? $this->corporateLogoMeta() : [],
+			'logoPreview' => $view === 'branding' ? $this->corporateLogoDataUri() : '',
+			'logoRequirements' => $view === 'branding' ? $this->corporateLogoRequirements() : [],
 		];
 		unset($_SESSION['xrflow_hub_flash']);
 		return load_view(__DIR__ . '/views/' . $view . '.php', $vars);

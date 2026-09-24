@@ -11,6 +11,7 @@ $tabs = [
 	'dashboard' => _('Dashboard'),
 	'compliance' => _('WebRTC'),
 	'enroll' => _('Enroll'),
+	'branding' => _('Corporate logo'),
 	'about' => _('About'),
 ];
 ?>

@@ -59,6 +59,19 @@ sudo apt install --only-upgrade xrflow-softphone-hub
 4. Click **Apply Config** in FreePBX (red button) after any setup.
 5. Give them the code. It expires in 15 minutes and works once. They paste it in XRFlow Softphone → Use Hub enroll code.
 
+## Corporate logo (Enterprise seats only)
+
+Admin → **XRFlow Softphone → Corporate logo**. This is not a setting inside the Softphone.
+
+The desktop app replaces the upper-left XRFlow mark only when the desk is enrolled with this Hub **and** the seat is **Enterprise** (or a manufacturer key). Basic and Professional seats keep the XRFlow mark.
+
+| File | Requirements |
+|------|----------------|
+| PNG (`image/png`) | Square, at least 256×256 pixels, **144 DPI or higher**, 512 KB maximum. Recommended export: 512×512 at 144 DPI. |
+| SVG (`image/svg+xml`) | Square viewBox or equal width and height, no scripts or event handlers, 512 KB maximum. SVG has no DPI. |
+
+JPG, GIF, and WebP are rejected. PNG DPI is read from the file’s pHYs chunk. If that chunk is missing, the upload is rejected.
+
 SIP passwords and the desktop AMI login travel only when the app redeems the code over HTTPS. Do not paste enroll codes into email threads that sit around; they are short-lived on purpose.
 
 Hub creates an Asterisk Manager user named `xrflow-hub` (not the FreePBX admin AMI login). The app uses it for call events. That user is allowed from localhost, the office LAN, and OpenVPN. It is not opened to the whole internet. After the first Hub install, click **Apply Config** so Asterisk loads the AMI user.

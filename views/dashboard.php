@@ -62,6 +62,7 @@ $view = $view ?? 'dashboard';
 								<div class="panel-heading"><strong><?php echo _("Coming next") ?></strong></div>
 								<div class="panel-body">
 									<ul class="small">
+										<li><?php echo _("Corporate logo is on the Corporate logo tab (Enterprise seats only).") ?></li>
 										<li><?php echo _("Fleet heartbeat") ?></li>
 										<li><?php echo _("Seat pool (org token for desktop licenses)") ?></li>
 										<li><?php echo _("Company Presence proxy") ?></li>

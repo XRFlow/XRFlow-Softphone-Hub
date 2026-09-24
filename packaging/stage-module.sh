@@ -19,6 +19,7 @@ install -m 0644 \
   "$ROOT/COPYRIGHT" \
   "$ROOT/README.md" \
   "$ROOT/Xrflowsoftphone.class.php" \
+  "$ROOT/XrflowCorporateLogo.php" \
   "$ROOT/page.xrflowsoftphone.php" \
   "$DEST/"
 
