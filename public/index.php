@@ -113,6 +113,26 @@ if ($method === 'POST' && preg_match('#^/v1/branding/?$#', $path)) {
 	exit;
 }
 
+if ($method === 'POST' && preg_match('#^/v1/heartbeat/?$#', $path)) {
+	$rawBody = file_get_contents('php://input');
+	$data = json_decode((string) $rawBody, true);
+	if (!is_array($data)) {
+		$data = $_POST;
+	}
+	$result = $hub->recordHeartbeat(
+		(string) ($data['extension'] ?? ''),
+		(string) ($data['secret'] ?? ''),
+		$data
+	);
+	if (empty($result['ok'])) {
+		http_response_code((int) ($result['http'] ?? 400));
+		echo json_encode(['error' => $result['error'] ?? 'heartbeat_failed']);
+		exit;
+	}
+	echo json_encode(['ok' => true]);
+	exit;
+}
+
 if ($method === 'POST' && preg_match('#^/v1/user-profile/?$#', $path)) {
 	$rawBody = file_get_contents('php://input');
 	$data = json_decode((string) $rawBody, true);

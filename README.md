@@ -14,9 +14,11 @@ Product page: [xrflows.com/softphone#hub](https://xrflows.com/softphone#hub)
 
 - **Enroll a desk.** Generate a 15-minute, one-use code or link. The person pastes it in XRFlow Softphone → Use Hub enroll code.
 - **Check WebRTC.** See which extensions are ready for in-app calling. Repair is one click (then **Apply Config** in FreePBX).
-- **See Company Presence.** Hub detects whether that module is installed and reachable. It does not replace Company Presence and does not call Odoo itself.
+- **See Company Presence.** Hub detects whether that module is installed and reachable. It does not replace Company Presence.
+- **Fleet.** Desks on Softphone 0.2.60 or later check in about once a minute with extension, app version, license, and SIP registration. Online means a check-in in the last 3 minutes.
+- **Seats.** Paste an org token from xrflows.com (License Authority → Org Tokens). Hub lists grants, subscription term, unused seats, assigns an extension, reveals a pending key once, and can deactivate or reactivate seats. It does not store an xrflows.com user password and it does not create licenses.
 
-Coming later: fleet heartbeat (who is signed in, which app version) and assigning desktop seats from the PBX.
+Coming later: Company Presence proxy (Hub still does not fork Company Presence).
 
 A single person at home can skip Hub and use the desktop wizard. Hub is the company option.
 
@@ -58,6 +60,23 @@ sudo apt install --only-upgrade xrflow-softphone-hub
 3. If Softphone says **Needs setup**, click **Fix calling settings & enroll**. If it already says **Ready**, click **Generate enroll code**.
 4. Click **Apply Config** in FreePBX (red button) after any setup.
 5. Give them the code. It expires in 15 minutes and works once. They paste it in XRFlow Softphone → Use Hub enroll code.
+
+## Fleet
+
+Admin → **XRFlow Softphone → Fleet**.
+
+The desktop app posts to `/xrflow-hub/v1/heartbeat` with the same extension and SIP secret enroll already stored. Hub checks that secret and keeps the row (name, version, licensed, registered, last seen). Rows older than 30 days are dropped.
+
+## Seats
+
+Admin → **XRFlow Softphone → Seats**.
+
+1. On xrflows.com, open **License Authority → Org Tokens**.
+2. Create a token for the customer. Allow product `xrflow_softphone`.
+3. Generate the token and paste it into Hub. Leave the license service as `https://xrflows.com` unless you were told otherwise.
+4. Sync shows each grant: state, perpetual or end date, seats used, assigned extension, and whether a key is still waiting to be revealed.
+
+Reveal shows the key once on that page and does not save it. Deactivate frees active seats on that grant. It does not cancel the subscription.
 
 ## Corporate logo
 

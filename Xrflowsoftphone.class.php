@@ -23,6 +23,7 @@ use BMO;
 use FreePBX_Helpers;
 
 require_once __DIR__ . '/XrflowCorporateLogo.php';
+require_once __DIR__ . '/XrflowFleet.php';
 
 /**
  * Free GPLv3+ companion to the commercial XRFlow Softphone desktop client.
@@ -33,6 +34,7 @@ require_once __DIR__ . '/XrflowCorporateLogo.php';
  */
 class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 	use XrflowCorporateLogo;
+	use XrflowFleet;
 
 	public const MODULE_RAWNAME = 'xrflowsoftphone';
 	public const LICENSE = 'GPLv3+';
@@ -118,6 +120,57 @@ SQL;
 			];
 			return;
 		}
+		if ($action === 'save_org') {
+			$result = $this->saveOrgSettings((string) ($_POST['org_api_base'] ?? ''), (string) ($_POST['org_token'] ?? ''));
+			$_SESSION['xrflow_hub_flash'] = [
+				'ok' => !empty($result['ok']),
+				'message' => (string) ($result['message'] ?? 'Could not save seat pool settings.'),
+			];
+			return;
+		}
+		if ($action === 'clear_org') {
+			$_SESSION['xrflow_hub_flash'] = $this->clearOrgToken();
+			return;
+		}
+		if ($action === 'org_refresh') {
+			$result = $this->syncOrgGrants(true);
+			$_SESSION['xrflow_hub_flash'] = [
+				'ok' => !empty($result['ok']),
+				'message' => !empty($result['ok'])
+					? 'Seats synced.'
+					: (string) ($result['message'] ?? 'Could not sync seats.'),
+			];
+			return;
+		}
+		if ($action === 'org_assign') {
+			$result = $this->assignOrgGrant($_POST['grant_id'] ?? 0, (string) ($_POST['assign_extension'] ?? ''));
+			$_SESSION['xrflow_hub_flash'] = [
+				'ok' => !empty($result['ok']),
+				'message' => (string) ($result['message'] ?? 'Could not assign that seat.'),
+			];
+			return;
+		}
+		if ($action === 'org_deactivate' || $action === 'org_reactivate') {
+			$which = $action === 'org_deactivate' ? 'deactivate' : 'reactivate';
+			$result = $this->mutateOrgGrant($which, $_POST['grant_id'] ?? 0);
+			$_SESSION['xrflow_hub_flash'] = [
+				'ok' => !empty($result['ok']),
+				'message' => (string) ($result['message'] ?? 'Could not update that seat.'),
+			];
+			return;
+		}
+		if ($action === 'org_reveal') {
+			$result = $this->revealOrgGrant($_POST['grant_id'] ?? 0);
+			$flash = [
+				'ok' => !empty($result['ok']),
+				'message' => (string) ($result['message'] ?? 'Could not reveal that key.'),
+			];
+			if (!empty($result['license_key'])) {
+				$flash['license_key'] = (string) $result['license_key'];
+			}
+			$_SESSION['xrflow_hub_flash'] = $flash;
+			return;
+		}
 		if ($action === 'enroll' || $action === 'enroll_repair') {
 			$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) ($_POST['enroll_ext'] ?? ''));
 			$override = !empty($_POST['enroll_override']);
@@ -152,7 +205,7 @@ SQL;
 		if ($view === 'license') {
 			$view = 'about';
 		}
-		$allowed = ['dashboard', 'about', 'compliance', 'enroll', 'branding'];
+		$allowed = ['dashboard', 'about', 'compliance', 'enroll', 'branding', 'fleet', 'seats'];
 		if (!in_array($view, $allowed, true)) {
 			$view = 'dashboard';
 		}
@@ -168,6 +221,9 @@ SQL;
 			'logoMeta' => $view === 'branding' ? $this->corporateLogoMeta() : [],
 			'logoPreview' => $view === 'branding' ? $this->corporateLogoDataUri() : '',
 			'logoRequirements' => $view === 'branding' ? $this->corporateLogoRequirements() : [],
+			'fleetRows' => ($view === 'fleet' || $view === 'dashboard') ? $this->fleetRows() : [],
+			'fleetSummary' => $view === 'dashboard' ? $this->fleetSummary() : [],
+			'seatPool' => $view === 'seats' ? $this->seatPoolView(false) : [],
 		];
 		unset($_SESSION['xrflow_hub_flash']);
 		return load_view(__DIR__ . '/views/' . $view . '.php', $vars);

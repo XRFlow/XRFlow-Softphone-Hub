@@ -9,6 +9,7 @@ if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 $status = $status ?? [];
 $cp = $companyPresence ?? [];
 $view = $view ?? 'dashboard';
+$fleetSummary = is_array($fleetSummary ?? null) ? $fleetSummary : [];
 ?>
 <div class="container-fluid">
 	<div class="row">
@@ -59,14 +60,12 @@ $view = $view ?? 'dashboard';
 						</div>
 						<div class="col-md-4">
 							<div class="panel panel-default">
-								<div class="panel-heading"><strong><?php echo _("Coming next") ?></strong></div>
+								<div class="panel-heading"><strong><?php echo _("Fleet and seats") ?></strong></div>
 								<div class="panel-body">
-									<ul class="small">
-										<li><?php echo _("Corporate logo is on the Corporate logo tab. Any licensed Softphone shows it.") ?></li>
-										<li><?php echo _("Fleet heartbeat") ?></li>
-										<li><?php echo _("Seat pool (org token for desktop licenses)") ?></li>
-										<li><?php echo _("Company Presence proxy") ?></li>
-									</ul>
+									<p><?php echo sprintf(_("%d online · %d checked in"), (int) ($fleetSummary['online'] ?? 0), (int) ($fleetSummary['total'] ?? 0)) ?></p>
+									<p><a href="?display=xrflowsoftphone&amp;view=fleet"><?php echo _("Fleet") ?></a>
+										· <a href="?display=xrflowsoftphone&amp;view=seats"><?php echo _("Seats") ?></a></p>
+									<p class="small text-muted"><?php echo _("Coming next: Company Presence proxy.") ?></p>
 								</div>
 							</div>
 						</div>
