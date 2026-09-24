@@ -2,7 +2,7 @@
 	<rawname>xrflowsoftphone</rawname>
 	<repo>unsupported</repo>
 	<name>XRFlow Softphone Hub</name>
-	<version>0.2.8</version>
+	<version>0.2.9</version>
 	<category>Admin</category>
 	<publisher>XRFlow</publisher>
 	<license>GPLv3+</license>
@@ -17,6 +17,7 @@
 		Does not rewrite System Admin OpenVPN remotes.
 	</description>
 	<changelog>
+		*0.2.9* Corporate logo is for every licensed Softphone. Hub stays free. No Enterprise gate.
 		*0.2.8* Corporate logo for Enterprise Softphone seats (PNG 256px/144 DPI or square SVG). Not a desktop setting.
 		*0.2.7* user-profile also matches User Manager by display name when default_extension is not 1016
 		*0.2.6* POST /xrflow-hub/v1/user-profile returns User Manager / voicemail email for Gravatar (SIP-secret auth)

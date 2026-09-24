@@ -59,11 +59,11 @@ sudo apt install --only-upgrade xrflow-softphone-hub
 4. Click **Apply Config** in FreePBX (red button) after any setup.
 5. Give them the code. It expires in 15 minutes and works once. They paste it in XRFlow Softphone → Use Hub enroll code.
 
-## Corporate logo (Enterprise seats only)
+## Corporate logo
 
 Admin → **XRFlow Softphone → Corporate logo**. This is not a setting inside the Softphone.
 
-The desktop app replaces the upper-left XRFlow mark only when the desk is enrolled with this Hub **and** the seat is **Enterprise** (or a manufacturer key). Basic and Professional seats keep the XRFlow mark.
+The desktop app replaces the upper-left XRFlow mark when the desk is enrolled with this Hub and has a Softphone license (perpetual, annual, or monthly). Hub is free. There is no Enterprise-only feature.
 
 | File | Requirements |
 |------|----------------|

@@ -1,9 +1,9 @@
 <?php
 /**
- * Corporate logo for Enterprise XRFlow Softphone seats.
+ * Corporate logo for licensed XRFlow Softphone desks.
  *
- * The Hub stores the image. The desktop app shows it only when the seat
- * license is Enterprise (or manufacturer). This is not a Softphone setting.
+ * The Hub is free and stores the image. Any perpetual, annual, or monthly
+ * seat enrolled here shows it. This is not a Softphone setting.
  *
  * Copyright (C) 2026 XRFlow
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -31,7 +31,7 @@ trait XrflowCorporateLogo {
 				(int) (self::LOGO_MAX_BYTES / 1024)
 			),
 			'rejected' => 'JPG, GIF, WebP, ICO, and PDF are not accepted.',
-			'license' => 'Only Enterprise XRFlow Softphone seats show this logo. Basic and Professional seats keep the XRFlow mark. The desk must be enrolled with this Hub. There is no upload inside the Softphone.',
+			'license' => 'Any licensed Softphone seat (perpetual, annual, or monthly) enrolled with this Hub shows the logo. Hub is free. There is no upload inside the Softphone.',
 		];
 	}
 
@@ -88,7 +88,7 @@ trait XrflowCorporateLogo {
 			'updated_at' => time(),
 		];
 		$this->setConfig('corporate_logo', $meta);
-		return ['ok' => true, 'message' => 'Corporate logo saved. Enterprise seats enrolled with this Hub will show it in the upper-left corner.', 'meta' => $meta];
+		return ['ok' => true, 'message' => 'Corporate logo saved. Licensed desks enrolled with this Hub will show it in the upper-left corner.', 'meta' => $meta];
 	}
 
 	public function clearCorporateLogo(): void {

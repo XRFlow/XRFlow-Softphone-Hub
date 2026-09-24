@@ -1,6 +1,6 @@
 <?php
 /**
- * Corporate logo upload for Enterprise Softphone seats.
+ * Corporate logo upload. Shown on every licensed Softphone enrolled here.
  *
  * Copyright (C) 2026 XRFlow
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -19,7 +19,7 @@ $enabled = !empty($logoMeta['enabled']);
 			<div class="fpbx-container">
 				<div class="display no-border">
 					<h1><?php echo _("XRFlow Softphone Hub") ?></h1>
-					<p class="text-muted"><?php echo _("Replace the XRFlow mark in the Softphone upper-left corner. This only works with this Hub and an Enterprise seat.") ?></p>
+					<p class="text-muted"><?php echo _("Replace the XRFlow mark in the Softphone upper-left corner. Hub is free. Any licensed desk enrolled here shows this image.") ?></p>
 					<?php include __DIR__ . '/nav.php'; ?>
 
 					<?php if (is_array($flash) && !empty($flash['message'])) { ?>
@@ -86,7 +86,7 @@ $enabled = !empty($logoMeta['enabled']);
 											· <?php echo (int) round(((int) ($logoMeta['bytes'] ?? 0)) / 1024) ?> KB
 										</p>
 									<?php } else { ?>
-										<p class="text-muted"><?php echo _("No corporate logo. Enrolled Enterprise seats show the XRFlow mark.") ?></p>
+										<p class="text-muted"><?php echo _("No corporate logo. Enrolled desks show the XRFlow mark.") ?></p>
 									<?php } ?>
 								</div>
 							</div>
