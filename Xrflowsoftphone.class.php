@@ -24,6 +24,7 @@ use FreePBX_Helpers;
 
 require_once __DIR__ . '/XrflowCorporateLogo.php';
 require_once __DIR__ . '/XrflowFleet.php';
+require_once __DIR__ . '/XrflowAvatarImage.php';
 
 /**
  * Free GPLv3+ companion to the commercial XRFlow Softphone desktop client.
@@ -1136,6 +1137,89 @@ SQL;
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * User Manager photos and emails for the directory.
+	 * Auth is the same PJSIP secret as user-profile. Pictures are the blobs in
+	 * contactmanager_entry_userman_images (uid = userman user id), resized to a
+	 * PNG data URL. Assigned devices (981016 on user 1016) are included.
+	 * Missing table or GD: that picture is skipped; emails are still returned.
+	 *
+	 * @return array{ok:bool,http?:int,error?:string,users?:list<array<string,mixed>>}
+	 */
+	public function directoryAvatars($extension, $secret) {
+		$auth = $this->userProfile($extension, $secret);
+		if (empty($auth['ok'])) {
+			return $auth;
+		}
+		try {
+			$db = $this->FreePBX->Database;
+		} catch (\Throwable $e) {
+			return ['ok' => true, 'users' => []];
+		}
+		try {
+			$st = $db->prepare(
+				'SELECT id, username, default_extension, fname, lname, displayname, email FROM userman_users'
+			);
+			$st->execute();
+			$userRows = $st->fetchAll(\PDO::FETCH_ASSOC);
+		} catch (\Throwable $e) {
+			return ['ok' => true, 'users' => []];
+		}
+		if (!is_array($userRows)) {
+			return ['ok' => true, 'users' => []];
+		}
+
+		$images = [];
+		try {
+			$st = $db->prepare('SELECT uid, image, format FROM contactmanager_entry_userman_images');
+			$st->execute();
+			foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+				if (!is_array($row)) {
+					continue;
+				}
+				$images[(string) ($row['uid'] ?? '')] = $row;
+			}
+		} catch (\Throwable $e) {
+			// Contact Manager image table is optional. Emails still help Gravatar.
+		}
+
+		$assigned = [];
+		try {
+			$st = $db->prepare(
+				"SELECT uid, val FROM userman_users_settings WHERE module = 'global' AND `key` = 'assigned'"
+			);
+			$st->execute();
+			foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+				if (!is_array($row)) {
+					continue;
+				}
+				$assigned[(string) ($row['uid'] ?? '')] = $row['val'] ?? '';
+			}
+		} catch (\Throwable $e) {
+			// Assigned devices are optional. default_extension still matches.
+		}
+
+		$users = [];
+		foreach ($userRows as $user) {
+			if (!is_array($user)) {
+				continue;
+			}
+			$uid = (string) ($user['id'] ?? '');
+			$dataUrl = null;
+			if (isset($images[$uid]) && is_array($images[$uid])) {
+				$dataUrl = XrflowAvatarImage::dataUrl(
+					$images[$uid]['image'] ?? '',
+					(string) ($images[$uid]['format'] ?? '')
+				);
+			}
+			$payload = XrflowAvatarImage::userPayload($user, $dataUrl, $assigned[$uid] ?? null);
+			if ($payload !== null) {
+				$users[] = $payload;
+			}
+		}
+		return ['ok' => true, 'users' => $users];
 	}
 
 	/**

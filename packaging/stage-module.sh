@@ -21,6 +21,7 @@ install -m 0644 \
   "$ROOT/Xrflowsoftphone.class.php" \
   "$ROOT/XrflowCorporateLogo.php" \
   "$ROOT/XrflowFleet.php" \
+  "$ROOT/XrflowAvatarImage.php" \
   "$ROOT/page.xrflowsoftphone.php" \
   "$DEST/"
 

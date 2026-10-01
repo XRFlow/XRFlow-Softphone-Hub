@@ -159,6 +159,37 @@ if ($method === 'POST' && preg_match('#^/v1/user-profile/?$#', $path)) {
 	exit;
 }
 
+if ($method === 'POST' && preg_match('#^/v1/directory-avatars/?$#', $path)) {
+	$rawBody = file_get_contents('php://input');
+	$data = json_decode((string) $rawBody, true);
+	if (!is_array($data)) {
+		$data = $_POST;
+	}
+	$result = $hub->directoryAvatars(
+		(string) ($data['extension'] ?? ''),
+		(string) ($data['secret'] ?? '')
+	);
+	if (empty($result['ok'])) {
+		http_response_code((int) ($result['http'] ?? 400));
+		echo json_encode(['error' => $result['error'] ?? 'avatars_failed']);
+		exit;
+	}
+	$json = json_encode(
+		[
+			'ok' => true,
+			'users' => $result['users'] ?? [],
+		],
+		JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+	);
+	if ($json === false) {
+		http_response_code(500);
+		echo json_encode(['error' => 'encode_failed']);
+		exit;
+	}
+	echo $json;
+	exit;
+}
+
 http_response_code(404);
 echo json_encode([
 	'error' => 'not_found',
