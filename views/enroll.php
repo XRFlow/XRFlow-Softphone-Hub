@@ -51,7 +51,7 @@ foreach ($rows as $row) {
 									— <?php echo _("same person / same extension; desk phone keeps its own device.") ?></p>
 							<?php } ?>
 							<?php if (!empty($flash['need_openvpn'])) { ?>
-								<p><?php echo _("This code is for a desk that uses OpenVPN (home / off-site). Give them the System Admin .ovpn profile (do not change remotes). An office code for the same extension keeps its own setting.") ?></p>
+								<p><?php echo _("This code is for a desk that uses OpenVPN (home / off-site). The softphone receives the System Admin client profile and turns VPN on. There is no separate download. Remotes are not changed. An office code for the same extension keeps its own setting.") ?></p>
 							<?php } else { ?>
 								<p><?php echo _("This code is for a desk that connects without OpenVPN (on the office LAN). A home code for the same extension can still require VPN.") ?></p>
 							<?php } ?>

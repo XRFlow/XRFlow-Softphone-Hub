@@ -604,6 +604,13 @@ SQL;
 		if ($ext === '') {
 			return ['ok' => false, 'error' => 'Pick an extension.'];
 		}
+		if ($needVpn && $this->systemAdminOpenVpnBundle($ext) === null) {
+			return [
+				'ok' => false,
+				'error' => self::missingOpenVpnProfileMessage($ext),
+				'extension' => $ext,
+			];
+		}
 		$softId = $this->findSoftphoneDevice($ext);
 		$issues = $this->webrtcIssues($softId !== '' ? $this->pjsipKeywords($softId) : []);
 		if ($issues && !$override) {
@@ -668,12 +675,15 @@ SQL;
 		if ((int) $row['expires_at'] < time()) {
 			return ['ok' => false, 'http' => 410, 'error' => 'token_expired'];
 		}
+		$needVpn = self::enrollCodeNeedsVpn($row, $this->extensionNeedsVpn((string) $row['extension']));
+		if ($needVpn && $this->systemAdminOpenVpnBundle((string) $row['extension']) === null) {
+			return ['ok' => false, 'http' => 409, 'error' => 'openvpn_profile_missing'];
+		}
 		$upd = $db->prepare('UPDATE xrflowsoftphone_enroll SET redeemed_at = ? WHERE id = ? AND redeemed_at IS NULL');
 		$upd->execute([time(), $row['id']]);
 		if ($upd->rowCount() < 1) {
 			return ['ok' => false, 'http' => 410, 'error' => 'token_used'];
 		}
-		$needVpn = self::enrollCodeNeedsVpn($row, $this->extensionNeedsVpn((string) $row['extension']));
 		$payload = $this->buildEnrollPayload((string) $row['extension'], $needVpn);
 		$payload['companyPresence'] = !empty($this->detectCompanyPresence()['presence_sync_port_open']);
 		return ['ok' => true, 'payload' => $payload];
@@ -710,13 +720,19 @@ SQL;
 		if ($secret === '' && !empty($kv['secret'])) {
 			$secret = $kv['secret'];
 		}
-		$vpnHint = $needVpn
-			? 'Use the System Admin .ovpn already issued; remotes unmodified.'
-			: '';
+		$profile = null;
+		if ($needVpn) {
+			$profile = $this->systemAdminOpenVpnBundle($ext);
+			$vpnHint = $profile !== null
+				? 'OpenVPN client from System Admin is included. Remotes are unchanged.'
+				: 'Use the System Admin .ovpn already issued; remotes unmodified.';
+		} else {
+			$vpnHint = '';
+		}
 		$ami = $this->ensureAmiUser();
 		$amiHost = $needVpn ? $amiLan : $this->amiOfficeHost();
 		$oauth = $this->ensureOauthClient();
-		return [
+		$payload = [
 			'host' => $host,
 			'https' => true,
 			'sipDomain' => $host,
@@ -736,6 +752,378 @@ SQL;
 			'openVpnHint' => $vpnHint,
 			'policy' => ['minVersion' => '0.2.25', 'lockSettings' => true],
 		];
+		if ($profile !== null) {
+			$payload['openVpnProfile'] = $profile;
+		}
+		return $payload;
+	}
+
+	/**
+	 * Read the System Admin client profile already on disk. Does not write
+	 * server config, Easy-RSA, or sysadmin_server1.conf. Remotes stay as exported.
+	 *
+	 * @return array{filename:string,config:string,files:list<array{name:string,content:string}>}|null
+	 */
+	public function systemAdminOpenVpnBundle($ext) {
+		$dirs = self::systemAdminOpenVpnDirs();
+		$diskIds = self::sysadminClientIdsInDirs($dirs);
+		$clients = $this->readSysadminVpnClients();
+		$preferred = $this->usermanVpnClientIds($ext);
+		$id = self::selectSysadminClientId($ext, $clients, $diskIds, $preferred);
+		if ($id === '') {
+			return null;
+		}
+		return self::bundleFromClientDirs($id, $dirs);
+	}
+
+	public static function missingOpenVpnProfileMessage($ext) {
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $ext);
+		return 'Home enroll needs the System Admin OpenVPN client for extension ' . $ext
+			. '. In User Management, enable VPN for that user, or create the client in System Admin → VPN and set its description to start with the extension. Remotes are not changed. Then create the home profile again.';
+	}
+
+	/** @return list<string> */
+	public static function systemAdminOpenVpnDirs() {
+		return ['/etc/openvpn/clients', '/etc/openvpn'];
+	}
+
+	/**
+	 * @param list<string> $dirs
+	 * @return list<string>
+	 */
+	public static function sysadminClientIdsInDirs(array $dirs) {
+		$ids = [];
+		foreach ($dirs as $dir) {
+			if (!is_string($dir) || !is_dir($dir)) {
+				continue;
+			}
+			$list = @scandir($dir);
+			if (!is_array($list)) {
+				continue;
+			}
+			foreach ($list as $name) {
+				if (preg_match('/^sysadmin_client([0-9A-Za-z_-]+)\.(conf|ovpn)$/', (string) $name, $m)) {
+					$ids[$m[1]] = true;
+				}
+			}
+		}
+		$out = array_map('strval', array_keys($ids));
+		sort($out, SORT_STRING);
+		return $out;
+	}
+
+	/**
+	 * Prefer the client assigned to this extension. One client on the PBX is used
+	 * when nothing is labeled. Several unlabeled clients are not guessed.
+	 *
+	 * @param mixed $vpnClients
+	 * @param list<string> $diskIds
+	 * @param list<string> $preferredIds
+	 */
+	public static function selectSysadminClientId($extension, $vpnClients, array $diskIds, array $preferredIds = []) {
+		$disk = [];
+		foreach ($diskIds as $id) {
+			$cid = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $id);
+			if ($cid !== '') {
+				$disk[$cid] = true;
+			}
+		}
+		$pref = [];
+		foreach ($preferredIds as $id) {
+			$cid = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $id);
+			if ($cid !== '' && isset($disk[$cid])) {
+				$pref[$cid] = true;
+			}
+		}
+		$prefIds = array_keys($pref);
+		if (count($prefIds) === 1) {
+			return (string) $prefIds[0];
+		}
+		$matched = [];
+		if (is_array($vpnClients)) {
+			foreach ($vpnClients as $id => $row) {
+				$cid = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $id);
+				if ($cid === '' || !isset($disk[$cid]) || self::clientRowDisabled($row)) {
+					continue;
+				}
+				$hit = false;
+				if (is_array($row)) {
+					$hit = self::clientRowMatchesExtension($row, (string) $extension);
+				} elseif (is_string($row) || is_int($row)) {
+					$hit = self::labelMatchesExtension((string) $row, (string) $extension);
+				}
+				if ($hit) {
+					$matched[$cid] = true;
+				}
+			}
+		}
+		$matchedIds = array_keys($matched);
+		if (count($prefIds) > 1) {
+			$both = array_values(array_intersect($prefIds, $matchedIds));
+			return count($both) === 1 ? (string) $both[0] : '';
+		}
+		if (count($matchedIds) === 1) {
+			return (string) $matchedIds[0];
+		}
+		if (count($matchedIds) > 1) {
+			return '';
+		}
+		$diskIds = array_keys($disk);
+		if (count($diskIds) === 1) {
+			$only = $diskIds[0];
+			$row = is_array($vpnClients) ? ($vpnClients[$only] ?? null) : null;
+			if (is_array($row) && self::clientRowNamesOtherExtension($row, (string) $extension)) {
+				return '';
+			}
+			return (string) $only;
+		}
+		return '';
+	}
+
+	/** A client labeled for a different extension is not the fallback profile. */
+	public static function clientRowNamesOtherExtension($row, $ext) {
+		if (!is_array($row)) {
+			return false;
+		}
+		foreach (['description', 'name', 'username', 'user', 'extension'] as $key) {
+			if (!isset($row[$key]) || (!is_string($row[$key]) && !is_int($row[$key]))) {
+				continue;
+			}
+			$label = trim((string) $row[$key]);
+			if ($label === '' || self::labelMatchesExtension($label, (string) $ext)) {
+				continue;
+			}
+			if (preg_match('/^(\d+)/', $label, $m) && $m[1] !== (string) $ext) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** @param mixed $row */
+	public static function clientRowDisabled($row) {
+		if (!is_array($row) || !array_key_exists('enabled', $row)) {
+			return false;
+		}
+		$v = $row['enabled'];
+		if ($v === true || $v === 1 || $v === '1') {
+			return false;
+		}
+		return $v === false || $v === 0 || $v === '0' || $v === 'no' || $v === 'false' || $v === '';
+	}
+
+	/** @param array<mixed> $row */
+	public static function clientRowMatchesExtension(array $row, $ext) {
+		foreach ($row as $value) {
+			if ((is_string($value) || is_int($value)) && self::labelMatchesExtension((string) $value, (string) $ext)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public static function labelMatchesExtension($label, $ext) {
+		$ext = (string) $ext;
+		$label = (string) $label;
+		if ($ext === '' || $label === '') {
+			return false;
+		}
+		return (bool) preg_match('/(^|[^0-9A-Za-z])' . preg_quote($ext, '/') . '([^0-9A-Za-z]|$)/', $label);
+	}
+
+	/**
+	 * A User Management value is a client id only when the setting is about the
+	 * client (not vpn_enabled=yes) or it names sysadmin_clientN.
+	 *
+	 * @return list<string>
+	 */
+	public static function clientIdsFromUserSetting($key, $val) {
+		$key = strtolower((string) $key);
+		$val = trim((string) $val);
+		if ($key === '' || $val === '' || !preg_match('/vpn/', $key)) {
+			return [];
+		}
+		$out = [];
+		if (preg_match_all('/sysadmin_client([0-9A-Za-z_-]+)/', $val, $m)) {
+			foreach ($m[1] as $id) {
+				$out[] = $id;
+			}
+		}
+		if (!preg_match('/client/', $key)) {
+			return array_values(array_unique($out));
+		}
+		if (preg_match('/^[0-9A-Za-z_-]+$/', $val)) {
+			$out[] = $val;
+		}
+		$decoded = json_decode($val, true);
+		if (is_array($decoded)) {
+			foreach ($decoded as $item) {
+				if (is_scalar($item) && preg_match('/^[0-9A-Za-z_-]+$/', (string) $item)) {
+					$out[] = (string) $item;
+				} elseif (is_array($item) && isset($item['id']) && preg_match('/^[0-9A-Za-z_-]+$/', (string) $item['id'])) {
+					$out[] = (string) $item['id'];
+				}
+			}
+		}
+		return array_values(array_unique($out));
+	}
+
+	/**
+	 * @param list<string> $dirs
+	 * @return array{filename:string,config:string,files:list<array{name:string,content:string}>}|null
+	 */
+	public static function bundleFromClientDirs($clientId, array $dirs) {
+		$rawId = (string) $clientId;
+		$clientId = preg_replace('/[^0-9A-Za-z_-]/', '', $rawId);
+		if ($clientId === '' || $clientId !== $rawId) {
+			return null;
+		}
+		$confPath = null;
+		$confName = null;
+		foreach ($dirs as $dir) {
+			if (!is_string($dir)) {
+				continue;
+			}
+			foreach (['sysadmin_client' . $clientId . '.conf', 'sysadmin_client' . $clientId . '.ovpn'] as $name) {
+				$path = rtrim($dir, '/') . '/' . $name;
+				if (is_file($path) && is_readable($path)) {
+					$confPath = $path;
+					$confName = $name;
+					break 2;
+				}
+			}
+		}
+		if ($confPath === null || $confName === null) {
+			return null;
+		}
+		$config = @file_get_contents($confPath);
+		if (!is_string($config) || strlen($config) > 262144 || strpos($config, "\0") !== false) {
+			return null;
+		}
+		if (!preg_match('/^\s*remote\s+\S+/m', $config)) {
+			return null;
+		}
+		$files = [];
+		$total = strlen($config);
+		foreach (self::referencedOvpnFiles($config) as $name) {
+			$path = self::findReadableBasename($name, $dirs);
+			if ($path === null) {
+				$directive = self::ovpnDirectiveForFile($config, $name);
+				if ($directive !== '' && self::inlineBlockPresent($config, $directive)) {
+					continue;
+				}
+				return null;
+			}
+			$body = @file_get_contents($path);
+			if (!is_string($body) || strlen($body) > 262144 || strpos($body, "\0") !== false) {
+				return null;
+			}
+			$total += strlen($body);
+			if ($total > 1048576 || count($files) >= 8) {
+				return null;
+			}
+			$files[] = ['name' => $name, 'content' => $body];
+		}
+		return [
+			'filename' => $confName,
+			'config' => $config,
+			'files' => $files,
+		];
+	}
+
+	/** @return list<string> */
+	public static function referencedOvpnFiles($configText) {
+		$names = [];
+		foreach (preg_split('/\r?\n/', (string) $configText) as $line) {
+			$t = trim((string) $line);
+			if ($t === '' || $t[0] === '#' || $t[0] === ';') {
+				continue;
+			}
+			if (!preg_match('/^(ca|cert|key|tls-auth|tls-crypt|tls-crypt-v2|dh|extra-certs|pkcs12|crl-verify|secret)\s+(\S+)/i', $t, $m)) {
+				continue;
+			}
+			$file = trim($m[2], "\"'");
+			if ($file === '' || $file[0] === '<' || strpos($file, '/') !== false || strpos($file, '\\') !== false || strpos($file, '..') !== false) {
+				continue;
+			}
+			if (preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/', $file)) {
+				$names[$file] = true;
+			}
+		}
+		return array_keys($names);
+	}
+
+	/** @param list<string> $dirs */
+	public static function findReadableBasename($name, array $dirs) {
+		if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/', (string) $name) || strpos((string) $name, '..') !== false) {
+			return null;
+		}
+		foreach ($dirs as $dir) {
+			if (!is_string($dir)) {
+				continue;
+			}
+			$path = rtrim($dir, '/') . '/' . $name;
+			if (is_file($path) && is_readable($path)) {
+				return $path;
+			}
+		}
+		return null;
+	}
+
+	private static function ovpnDirectiveForFile($config, $name) {
+		$quoted = preg_quote((string) $name, '/');
+		if (preg_match('/^\s*(ca|cert|key|tls-auth|tls-crypt|tls-crypt-v2|dh|extra-certs|pkcs12|crl-verify|secret)\s+["\']?' . $quoted . '\b/mi', (string) $config, $m)) {
+			return strtolower($m[1]);
+		}
+		return '';
+	}
+
+	private static function inlineBlockPresent($config, $directive) {
+		return (bool) preg_match('/<' . preg_quote((string) $directive, '/') . '>/i', (string) $config);
+	}
+
+	/** @return array<mixed> */
+	private function readSysadminVpnClients() {
+		try {
+			$st = $this->FreePBX->Database()->query("SELECT `key`, `value` FROM sysadmin_options WHERE `key` = 'vpnclients' LIMIT 1");
+			$row = $st ? $st->fetch(\PDO::FETCH_ASSOC) : false;
+			if (!is_array($row) || !isset($row['value'])) {
+				return [];
+			}
+			$decoded = json_decode((string) $row['value'], true);
+			return is_array($decoded) ? $decoded : [];
+		} catch (\Throwable $e) {
+			return [];
+		}
+	}
+
+	/** @return list<string> */
+	private function usermanVpnClientIds($ext) {
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $ext);
+		if ($ext === '') {
+			return [];
+		}
+		try {
+			$st = $this->FreePBX->Database()->prepare(
+				'SELECT s.`key` AS setting_key, s.val FROM userman_users u
+				 INNER JOIN userman_users_settings s ON s.uid = u.id
+				 WHERE (u.default_extension = ? OR u.username = ?)
+				 AND s.`key` LIKE ?'
+			);
+			$st->execute([$ext, $ext, '%vpn%']);
+			$ids = [];
+			while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+				if (!is_array($row)) {
+					continue;
+				}
+				foreach (self::clientIdsFromUserSetting((string) ($row['setting_key'] ?? ''), (string) ($row['val'] ?? '')) as $id) {
+					$ids[$id] = true;
+				}
+			}
+			return array_keys($ids);
+		} catch (\Throwable $e) {
+			return [];
+		}
 	}
 
 	private function publicHost() {

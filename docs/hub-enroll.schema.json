@@ -23,6 +23,27 @@
     "oauthClientId": { "type": "string" },
     "oauthClientSecret": { "type": "string" },
     "openVpnHint": { "type": "string" },
+    "openVpnProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "config", "files"],
+      "properties": {
+        "filename": { "type": "string" },
+        "config": { "type": "string", "description": "Unmodified System Admin client config. Remotes are not rewritten." },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "content"],
+            "properties": {
+              "name": { "type": "string" },
+              "content": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
     "seatKey": { "type": "string" },
     "companyPresence": { "type": "boolean" },
     "policy": {

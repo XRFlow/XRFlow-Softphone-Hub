@@ -105,15 +105,15 @@ Hub does **not** turn WebRTC on the desk-phone line. A Yealink, Poly, or other S
 
 Instead Hub adds a **separate softphone device** (same person, both ring). That extra device gets the calling settings the app needs (AVPF, ICE, DTLS-SRTP, and so on). You will see its device id on Enroll after setup (for example `971001` next to extension 1001).
 
-That device allows **five simultaneous SIP registrations**. An office softphone and a home softphone can both be registered on the same extension. On the **WebRTC** tab, each row has **Create office profile** and **Create home profile**. Each button makes its own enroll code. The office code does not use OpenVPN. The home code does. Creating the home profile does not change an office code that was already issued. Click **Apply Config** after the first profile so Asterisk loads the higher registration limit. The desk phone is still a different device and is not changed.
+That device allows **five simultaneous SIP registrations**. An office softphone and a home softphone can both be registered on the same extension. On the **WebRTC** tab, each row has **Create office profile** and **Create home profile**. Each button makes its own enroll code. The office code does not use OpenVPN. The home code includes the System Admin OpenVPN client already on the PBX, and the desktop app turns VPN on from that profile. There is no second download. Creating the home profile does not change an office code that was already issued. Click **Apply Config** after the first profile so Asterisk loads the higher registration limit. The desk phone is still a different device and is not changed.
 
 The **WebRTC** tab is the bulk version of the same action: set up selected softphones, leave desk phones as-is, then Apply Config.
 
 ## What Hub will not change
 
-Hub does **not** rewrite System Admin OpenVPN files, Easy-RSA, or `sysadmin_server1.conf`. Use the `.ovpn` System Admin already issued. Remotes stay as exported.
+Hub does **not** rewrite System Admin OpenVPN files, Easy-RSA, or `sysadmin_server1.conf`. A home enroll reads the client profile System Admin already issued (`/etc/openvpn/clients/sysadmin_clientN.conf` plus its certificate files) and sends that text unchanged. Remotes stay as exported.
 
-If a desk needs VPN, check **This desk uses VPN** on that enroll code only. Hub then tells that app to prefer the OpenVPN LAN. The other code for the same extension is unchanged. Hub still does not rewrite remotes. Permit AMI on the LAN plus the OpenVPN subnet (often `10.8.0.0/24`) for home users.
+If a desk needs VPN, use **Create home profile** (or check **This desk uses VPN** on that enroll code only). The person redeems that code in the app. The app saves the profile and enables OpenVPN. The other code for the same extension is unchanged. Permit AMI on the LAN plus the OpenVPN subnet (often `10.8.0.0/24`) for home users. The client must already exist for that extension (User Management VPN, or a System Admin client whose description starts with the extension). One unlabeled client on the PBX is used when it is the only one.
 
 ## License
 

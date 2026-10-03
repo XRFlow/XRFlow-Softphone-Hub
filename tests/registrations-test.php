@@ -77,4 +77,87 @@ if (Xrflowsoftphone::parseProfileRequest('|office') !== null) {
 	xrflow_fail('empty extension');
 }
 
+$fixture = sys_get_temp_dir() . '/xrflow-ovpn-test-' . getmypid();
+if (!mkdir($fixture, 0700, true) && !is_dir($fixture)) {
+	xrflow_fail('temp dir');
+}
+$conf = "client\ndev tun\nproto udp\nremote pbx.example.com 1194\nca sysadmin_ca.crt\ncert sysadmin_client3.crt\nkey sysadmin_client3.key\n";
+file_put_contents($fixture . '/sysadmin_client3.conf', $conf);
+file_put_contents($fixture . '/sysadmin_client3.crt', "CERT3\n");
+file_put_contents($fixture . '/sysadmin_client3.key', "KEY3\n");
+file_put_contents($fixture . '/sysadmin_ca.crt', "CA\n");
+$conf9 = "client\ndev tun\nremote other.example.com 1194\nca sysadmin_ca.crt\ncert sysadmin_client9.crt\nkey sysadmin_client9.key\n";
+file_put_contents($fixture . '/sysadmin_client9.conf', $conf9);
+file_put_contents($fixture . '/sysadmin_client9.crt', "CERT9\n");
+file_put_contents($fixture . '/sysadmin_client9.key', "KEY9\n");
+
+$ids = Xrflowsoftphone::sysadminClientIdsInDirs([$fixture]);
+sort($ids);
+if ($ids !== ['3', '9']) {
+	xrflow_fail('client ids ' . json_encode($ids));
+}
+$clients = [
+	'3' => ['description' => '1016 - Dan', 'enabled' => 1],
+	'9' => ['description' => '1000 - Other', 'enabled' => '0'],
+];
+if (Xrflowsoftphone::selectSysadminClientId('1016', $clients, $ids) !== '3') {
+	xrflow_fail('home client should match extension 1016');
+}
+if (Xrflowsoftphone::selectSysadminClientId('1000', $clients, $ids) !== '') {
+	xrflow_fail('disabled client must not be selected');
+}
+if (Xrflowsoftphone::selectSysadminClientId('1016', $clients, ['3', '9'], ['9']) !== '9') {
+	xrflow_fail('assigned client id should win');
+}
+if (Xrflowsoftphone::selectSysadminClientId('1016', [], ['3']) !== '3') {
+	xrflow_fail('single unlabeled client');
+}
+if (Xrflowsoftphone::selectSysadminClientId('1016', ['3' => ['description' => '1000 - Other', 'enabled' => 1]], ['3']) !== '') {
+	xrflow_fail('single client labeled for someone else');
+}
+if (Xrflowsoftphone::selectSysadminClientId('1016', [], ['3', '9']) !== '') {
+	xrflow_fail('two unlabeled clients must not be guessed');
+}
+if (Xrflowsoftphone::clientIdsFromUserSetting('vpn_enabled', 'yes') !== []) {
+	xrflow_fail('vpn_enabled is not a client id');
+}
+if (Xrflowsoftphone::clientIdsFromUserSetting('vpnclient', '3') !== ['3']) {
+	xrflow_fail('vpnclient id');
+}
+
+$bundle = Xrflowsoftphone::bundleFromClientDirs('3', [$fixture]);
+if ($bundle === null) {
+	xrflow_fail('bundle missing');
+}
+if ($bundle['config'] !== $conf) {
+	xrflow_fail('config was rewritten');
+}
+if (strpos($bundle['config'], 'remote pbx.example.com 1194') === false) {
+	xrflow_fail('remote missing');
+}
+if (strpos($bundle['config'], 'ca sysadmin_ca.crt') === false) {
+	xrflow_fail('ca line rewritten');
+}
+$names = [];
+foreach ($bundle['files'] as $file) {
+	$names[$file['name']] = $file['content'];
+}
+if (($names['sysadmin_ca.crt'] ?? '') !== "CA\n" || ($names['sysadmin_client3.crt'] ?? '') !== "CERT3\n" || ($names['sysadmin_client3.key'] ?? '') !== "KEY3\n") {
+	xrflow_fail('sibling files');
+}
+if (Xrflowsoftphone::bundleFromClientDirs('../3', [$fixture]) !== null) {
+	xrflow_fail('path traversal client id');
+}
+if (Xrflowsoftphone::findReadableBasename('../sysadmin_ca.crt', [$fixture]) !== null) {
+	xrflow_fail('path traversal basename');
+}
+
+foreach (scandir($fixture) as $name) {
+	if ($name === '.' || $name === '..') {
+		continue;
+	}
+	unlink($fixture . '/' . $name);
+}
+rmdir($fixture);
+
 echo "ok\n";

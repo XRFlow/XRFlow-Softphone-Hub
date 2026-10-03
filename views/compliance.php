@@ -31,7 +31,7 @@ $view = $view ?? 'compliance';
 									— <?php echo _("office and home profiles share this device and can both be registered.") ?></p>
 							<?php } ?>
 							<?php if (($flash['profile'] ?? '') === 'home' || !empty($flash['need_openvpn'])) { ?>
-								<p><?php echo _("This is the home profile. It uses OpenVPN. Give them the System Admin .ovpn file unchanged. The office profile is a separate code.") ?></p>
+								<p><?php echo _("This is the home profile. The enroll code includes the System Admin OpenVPN client. The softphone turns VPN on. There is no separate .ovpn download. The office profile is a separate code.") ?></p>
 							<?php } else { ?>
 								<p><?php echo _("This is the office profile. It connects on the office LAN without OpenVPN. The home profile is a separate code from the other button.") ?></p>
 							<?php } ?>
@@ -54,7 +54,7 @@ $view = $view ?? 'compliance';
 					<?php } ?>
 
 					<p class="text-muted" style="margin-top:1rem;">
-						<?php echo _("Each person has one softphone device next to the desk phone. On that row, create an office profile (no VPN) and a home profile (VPN). Each button makes its own enroll code. Redeem each code on its own computer. Both can stay registered. The desk phone is not changed.") ?>
+						<?php echo _("Each person has one softphone device next to the desk phone. On that row, create an office profile (no VPN) and a home profile (VPN). The home code carries the System Admin OpenVPN client, so the app sets VPN up itself. Each button makes its own enroll code. Redeem each code on its own computer. Both can stay registered. The desk phone is not changed.") ?>
 					</p>
 					<p class="small"><?php echo htmlspecialchars($ovpn) ?></p>
 
