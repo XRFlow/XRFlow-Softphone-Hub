@@ -59,4 +59,22 @@ if (Xrflowsoftphone::enrollCodeNeedsVpn(['extension' => '1016'], false)) {
 	xrflow_fail('legacy row without the flag');
 }
 
+$office = Xrflowsoftphone::parseProfileRequest('1016|office');
+if ($office === null || $office['extension'] !== '1016' || $office['kind'] !== 'office' || $office['needVpn'] !== false) {
+	xrflow_fail('office profile request');
+}
+$home = Xrflowsoftphone::parseProfileRequest('981016|home');
+if ($home === null || $home['needVpn'] !== true || $home['kind'] !== 'home') {
+	xrflow_fail('home profile request');
+}
+if (Xrflowsoftphone::parseProfileRequest('1016|vpn') !== null) {
+	xrflow_fail('unknown profile kind');
+}
+if (Xrflowsoftphone::parseProfileRequest('office') !== null) {
+	xrflow_fail('profile without extension');
+}
+if (Xrflowsoftphone::parseProfileRequest('|office') !== null) {
+	xrflow_fail('empty extension');
+}
+
 echo "ok\n";

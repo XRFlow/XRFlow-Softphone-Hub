@@ -97,6 +97,10 @@ SQL;
 	public function restore($backup) {}
 
 	public function doConfigPageInit($page) {
+		if (!empty($_POST['xrflow_profile'])) {
+			$_SESSION['xrflow_hub_flash'] = $this->createProfileFromRequest((string) $_POST['xrflow_profile']);
+			return;
+		}
 		if (empty($_POST['xrflow_hub_action'])) {
 			return;
 		}
@@ -504,6 +508,62 @@ SQL;
 			'max_contacts' => 'This softphone device allows only one registration. Office and home each need a slot.',
 			'remove_existing' => 'A full registration list would reject another softphone instead of dropping the oldest contact.',
 		];
+	}
+
+	/**
+	 * WebRTC row button value: "{extension}|office" or "{extension}|home".
+	 *
+	 * @return array{extension:string,kind:string,needVpn:bool}|null
+	 */
+	public static function parseProfileRequest($raw) {
+		$parts = explode('|', (string) $raw, 2);
+		if (count($parts) !== 2) {
+			return null;
+		}
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', $parts[0]);
+		$kind = $parts[1];
+		if ($ext === '' || ($kind !== 'office' && $kind !== 'home')) {
+			return null;
+		}
+		return [
+			'extension' => $ext,
+			'kind' => $kind,
+			'needVpn' => $kind === 'home',
+		];
+	}
+
+	/**
+	 * Office (no VPN) or home (VPN) enroll code for one extension.
+	 * Sets up the companion device first, then issues a one-time code.
+	 * A second profile does not remove the first registration.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function createProfileFromRequest($raw) {
+		$parsed = self::parseProfileRequest($raw);
+		if ($parsed === null) {
+			return ['ok' => false, 'error' => 'Pick an office or home profile for one extension.'];
+		}
+		$ext = $parsed['extension'];
+		$needVpn = $parsed['needVpn'];
+		$this->setExtensionVpn($ext, $needVpn);
+		$repair = $this->applyWebrtcTemplate([$ext], false);
+		if (empty($repair['ok'])) {
+			return [
+				'ok' => false,
+				'error' => $repair['message'] ?? 'Could not set up the softphone device.',
+				'extension' => $ext,
+				'profile' => $parsed['kind'],
+			];
+		}
+		$flash = $this->generateEnrollToken($ext, false, $needVpn);
+		if (!empty($flash['ok'])) {
+			$flash['repaired'] = true;
+			$flash['profile'] = $parsed['kind'];
+			$label = $needVpn ? 'Home profile (VPN)' : 'Office profile (no VPN)';
+			$flash['message'] = $label . ' for extension ' . $ext . '. ' . ($flash['message'] ?? '');
+		}
+		return $flash;
 	}
 
 	/**

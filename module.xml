@@ -2,7 +2,7 @@
 	<rawname>xrflowsoftphone</rawname>
 	<repo>unsupported</repo>
 	<name>XRFlow Softphone Hub</name>
-	<version>0.2.13</version>
+	<version>0.2.14</version>
 	<category>Admin</category>
 	<publisher>XRFlow</publisher>
 	<license>GPLv3+</license>
@@ -17,6 +17,7 @@
 		Does not rewrite System Admin OpenVPN remotes.
 	</description>
 	<changelog>
+		*0.2.14* WebRTC tab can create an office profile and a home profile for the same extension. Each button issues its own enroll code.
 		*0.2.13* WebRTC tab has Select all and Deselect all for the extension checkboxes.
 		*0.2.12* The softphone device accepts several registrations on one extension (office without VPN and home with VPN). Each enroll code keeps its own VPN choice.
 		*0.2.11* POST /xrflow-hub/v1/directory-avatars returns User Manager photos and emails for the desktop directory (SIP-secret auth). OAuth is not required.
