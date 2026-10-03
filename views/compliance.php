@@ -30,9 +30,13 @@ $view = $view ?? 'compliance';
 					</p>
 					<p class="small"><?php echo htmlspecialchars($ovpn) ?></p>
 
-					<form method="post" action="config.php?display=xrflowsoftphone&amp;view=compliance">
+					<form method="post" action="config.php?display=xrflowsoftphone&amp;view=compliance" id="xrflow-webrtc-form">
 						<input type="hidden" name="xrflow_hub_action" value="apply_webrtc"/>
-						<table class="table table-striped">
+						<div style="margin:0.75rem 0;">
+							<button type="button" class="btn btn-default btn-sm" id="xrflow-webrtc-select-all"><?php echo _("Select all") ?></button>
+							<button type="button" class="btn btn-default btn-sm" id="xrflow-webrtc-deselect-all"><?php echo _("Deselect all") ?></button>
+						</div>
+						<table class="table table-striped" id="xrflow-webrtc-table">
 							<thead>
 								<tr>
 									<th></th>
@@ -69,9 +73,34 @@ $view = $view ?? 'compliance';
 							</tbody>
 						</table>
 						<div style="margin-top:0.75rem;">
+							<button type="button" class="btn btn-default btn-sm" id="xrflow-webrtc-select-all-bottom"><?php echo _("Select all") ?></button>
+							<button type="button" class="btn btn-default btn-sm" id="xrflow-webrtc-deselect-all-bottom"><?php echo _("Deselect all") ?></button>
 							<button type="submit" class="btn btn-primary"><?php echo _("Set up selected softphones") ?></button>
 						</div>
 					</form>
+					<script>
+					(function () {
+						var form = document.getElementById('xrflow-webrtc-form');
+						if (!form) { return; }
+						function setAll(checked) {
+							var boxes = form.querySelectorAll('input[type="checkbox"][name="ext[]"]');
+							for (var i = 0; i < boxes.length; i++) {
+								boxes[i].checked = checked;
+							}
+						}
+						function bind(id, checked) {
+							var button = document.getElementById(id);
+							if (!button) { return; }
+							button.addEventListener('click', function () {
+								setAll(checked);
+							});
+						}
+						bind('xrflow-webrtc-select-all', true);
+						bind('xrflow-webrtc-deselect-all', false);
+						bind('xrflow-webrtc-select-all-bottom', true);
+						bind('xrflow-webrtc-deselect-all-bottom', false);
+					})();
+					</script>
 				</div>
 			</div>
 		</div>
