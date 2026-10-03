@@ -26,7 +26,7 @@ $view = $view ?? 'compliance';
 					<?php } ?>
 
 					<p class="text-muted" style="margin-top:1rem;">
-						<?php echo _("Hub adds a separate softphone device next to the desk phone. The desk phone’s SIP settings are not changed, so a Yealink/Poly on the same extension keeps working.") ?>
+						<?php echo _("Hub adds a separate softphone device next to the desk phone. The desk phone’s SIP settings are not changed, so a Yealink/Poly on the same extension keeps working. That softphone device accepts more than one registration, so an office app and a home app can both be signed in.") ?>
 					</p>
 					<p class="small"><?php echo htmlspecialchars($ovpn) ?></p>
 

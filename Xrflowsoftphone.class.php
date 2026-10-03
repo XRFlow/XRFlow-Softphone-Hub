@@ -41,6 +41,11 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 	public const LICENSE = 'GPLv3+';
 	/** Companion PJSIP device id = prefix + user ext. 99=UCP, 98=Sangoma Connect. */
 	public const SOFTPHONE_PREFIX = '97';
+	/**
+	 * Simultaneous SIP contacts on the companion device (office + home + spares).
+	 * FreePBX defaults max_contacts to 1, which drops the other registration.
+	 */
+	public const SOFTPHONE_MAX_CONTACTS = '5';
 	public const AMI_USER = 'xrflow-hub';
 	public const AMI_ACL = 'system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate';
 	public const OAUTH_APP_NAME = 'XRFlow Softphone Hub';
@@ -309,6 +314,9 @@ SQL;
 			'dtls_auto_generate_cert' => 'yes',
 			'direct_media' => 'no',
 			'media_use_received_transport' => 'yes',
+			'max_contacts' => self::SOFTPHONE_MAX_CONTACTS,
+			// A new contact past the cap replaces the oldest. Two live desks stay registered.
+			'remove_existing' => 'yes',
 		];
 	}
 
@@ -493,7 +501,23 @@ SQL;
 			'dtls_auto_generate_cert' => 'DTLS certificate auto-generate is off',
 			'direct_media' => 'Direct media is on (the app needs it off)',
 			'media_use_received_transport' => 'The device is not using the caller media path',
+			'max_contacts' => 'This softphone device allows only one registration. Office and home each need a slot.',
+			'remove_existing' => 'A full registration list would reject another softphone instead of dropping the oldest contact.',
 		];
+	}
+
+	/**
+	 * VPN follows this enroll code. A later code for the same extension must not
+	 * change a code that was already issued for the office (or for home).
+	 * Codes stored before the need_openvpn column fall back to the extension map.
+	 *
+	 * @param array<string, mixed> $row
+	 */
+	public static function enrollCodeNeedsVpn(array $row, $extensionFlag = false) {
+		if (array_key_exists('need_openvpn', $row)) {
+			return !empty($row['need_openvpn']);
+		}
+		return !empty($extensionFlag);
 	}
 
 	private function webrtcIssues(array $kv) {
@@ -554,7 +578,7 @@ SQL;
 		$https = 'https://' . $host . '/xrflow-hub/enroll/' . $raw;
 		return [
 			'ok' => true,
-			'message' => 'One-time enroll code (15 minutes, one use). Desk phone on this extension was not changed.',
+			'message' => 'One-time enroll code (15 minutes, one use). Desk phone on this extension was not changed. Another code for this extension can stay registered at the same time (office without VPN, home with VPN).',
 			'token' => $raw,
 			'deep_link' => 'xrflow://enroll/' . $raw,
 			'https_link' => $https,
@@ -589,7 +613,7 @@ SQL;
 		if ($upd->rowCount() < 1) {
 			return ['ok' => false, 'http' => 410, 'error' => 'token_used'];
 		}
-		$needVpn = !empty($row['need_openvpn']) || $this->extensionNeedsVpn((string) $row['extension']);
+		$needVpn = self::enrollCodeNeedsVpn($row, $this->extensionNeedsVpn((string) $row['extension']));
 		$payload = $this->buildEnrollPayload((string) $row['extension'], $needVpn);
 		$payload['companyPresence'] = !empty($this->detectCompanyPresence()['presence_sync_port_open']);
 		return ['ok' => true, 'payload' => $payload];

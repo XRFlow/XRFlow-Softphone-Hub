@@ -51,9 +51,9 @@ foreach ($rows as $row) {
 									— <?php echo _("same person / same extension; desk phone keeps its own device.") ?></p>
 							<?php } ?>
 							<?php if (!empty($flash['need_openvpn'])) { ?>
-								<p><?php echo _("This desk is set to use OpenVPN. Give them the System Admin .ovpn profile (do not change remotes).") ?></p>
+								<p><?php echo _("This code is for a desk that uses OpenVPN (home / off-site). Give them the System Admin .ovpn profile (do not change remotes). An office code for the same extension keeps its own setting.") ?></p>
 							<?php } else { ?>
-								<p><?php echo _("This desk is set to connect without OpenVPN.") ?></p>
+								<p><?php echo _("This code is for a desk that connects without OpenVPN (on the office LAN). A home code for the same extension can still require VPN.") ?></p>
 							<?php } ?>
 							<p><strong><?php echo _("Deep link") ?>:</strong><br/>
 								<code style="word-break:break-all;user-select:all"><?php echo htmlspecialchars($flash['deep_link']) ?></code></p>
@@ -66,7 +66,7 @@ foreach ($rows as $row) {
 					<?php } ?>
 
 					<p class="text-muted" style="margin-top:1rem;">
-						<?php echo _("Pick a person, say whether they need OpenVPN (home / off-site), then generate a code. Desk phones on the same extension are left alone — Hub adds a separate softphone device.") ?>
+						<?php echo _("Pick a person and whether this desk needs OpenVPN. Generate one code with VPN off for the office, and another with VPN on for home. Both use the same extension and can be registered together. Desk phones are left alone — Hub adds one softphone device and allows several registrations on it.") ?>
 					</p>
 
 					<?php if (!$exts) { ?>
