@@ -49,7 +49,8 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 	public const AMI_USER = 'xrflow-hub';
 	public const AMI_ACL = 'system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate';
 	public const OAUTH_APP_NAME = 'XRFlow Softphone Hub';
-	public const OAUTH_SCOPES = 'gql,rest';
+	/** Space-separated. FreePBX splits allowed_scopes on spaces; a comma makes one invalid scope. */
+	public const OAUTH_SCOPES = 'gql rest';
 
 	public function __construct($freepbx = null) {
 		$this->FreePBX = $freepbx ?: \FreePBX::create();
@@ -1318,6 +1319,7 @@ SQL;
 		$id = (string) $this->getConfig('oauth_client_id');
 		$secret = (string) $this->getConfig('oauth_client_secret');
 		if ($id !== '' && $secret !== '' && $this->oauthClientValid($id, $secret)) {
+			$this->ensureOauthScopes($id);
 			return ['client_id' => $id, 'client_secret' => $secret];
 		}
 		try {
@@ -1331,6 +1333,7 @@ SQL;
 			}
 			$existing = $this->oauthAppByName($apps, self::OAUTH_APP_NAME);
 			if ($existing && $id === (string) $existing['client_id'] && $secret !== '' && $this->oauthSecretMatches($existing, $secret)) {
+				$this->ensureOauthScopes($id);
 				return ['client_id' => $id, 'client_secret' => $secret];
 			}
 			if ($existing && !empty($existing['client_id'])) {
@@ -1353,9 +1356,74 @@ SQL;
 			}
 			$this->setConfig('oauth_client_id', $newId);
 			$this->setConfig('oauth_client_secret', $newSecret);
+			$this->ensureOauthScopes($newId);
 			return ['client_id' => $newId, 'client_secret' => $newSecret];
 		} catch (\Throwable $e) {
 			return $empty;
+		}
+	}
+
+	/**
+	 * FreePBX ScopeRepository splits allowed_scopes on spaces. Empty means gql and rest.
+	 * "gql,rest" is one identifier, so the token is issued with no scopes and GraphQL
+	 * hides fetchAllExtensions.
+	 *
+	 * @param mixed $raw
+	 */
+	public static function normalizeOauthAllowedScopes($raw) {
+		$current = trim((string) $raw);
+		if ($current === '') {
+			return '';
+		}
+		$kept = [];
+		foreach (preg_split('/\s+/', $current) ?: [] as $token) {
+			foreach (explode(',', (string) $token) as $part) {
+				$part = trim($part);
+				if ($part !== '' && !in_array($part, $kept, true)) {
+					$kept[] = $part;
+				}
+			}
+		}
+		foreach (['gql', 'rest'] as $need) {
+			if (!in_array($need, $kept, true)) {
+				$kept[] = $need;
+			}
+		}
+		return implode(' ', $kept);
+	}
+
+	/**
+	 * @param mixed $raw
+	 */
+	public static function oauthScopesNeedUpdate($raw) {
+		$current = trim((string) $raw);
+		if ($current === '') {
+			return false;
+		}
+		return self::normalizeOauthAllowedScopes($current) !== $current;
+	}
+
+	private function ensureOauthScopes($clientId) {
+		$clientId = (string) $clientId;
+		if ($clientId === '') {
+			return;
+		}
+		try {
+			$st = $this->FreePBX->Database->prepare(
+				'SELECT allowed_scopes FROM api_applications WHERE client_id = ? LIMIT 1'
+			);
+			$st->execute([$clientId]);
+			$row = $st->fetch(\PDO::FETCH_ASSOC);
+			if (!is_array($row) || !self::oauthScopesNeedUpdate($row['allowed_scopes'] ?? '')) {
+				return;
+			}
+			$next = self::normalizeOauthAllowedScopes($row['allowed_scopes'] ?? '');
+			$up = $this->FreePBX->Database->prepare(
+				'UPDATE api_applications SET allowed_scopes = ? WHERE client_id = ?'
+			);
+			$up->execute([$next, $clientId]);
+		} catch (\Throwable $e) {
+			// Directory keeps working once an admin saves gql and rest on the API app.
 		}
 	}
 
