@@ -1924,6 +1924,359 @@ SQL;
 		return $out;
 	}
 
+	/**
+	 * Companion device 981016 and the desk extension 1016 are the same person.
+	 * SMS DIDs are stored on the User Manager user, not on the softphone device id.
+	 *
+	 * @return list<string>
+	 */
+	public static function smsIdentityIds($deviceExt, $userExtension = '') {
+		$ids = [];
+		$deviceExt = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $deviceExt);
+		$userExtension = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $userExtension);
+		if ($deviceExt !== '') {
+			$ids[] = $deviceExt;
+		}
+		if (preg_match('/^(97|98|99)(\d{2,8})$/', $deviceExt, $m)) {
+			$ids[] = $m[2];
+		}
+		if ($userExtension !== '') {
+			$ids[] = $userExtension;
+		}
+		return array_values(array_unique($ids));
+	}
+
+	/**
+	 * @param mixed $raw
+	 * @return list<string>
+	 */
+	public static function assignedDeviceIds($raw) {
+		$list = XrflowAvatarImage::assignedExtensions($raw);
+		if ($list !== []) {
+			return $list;
+		}
+		if (!is_string($raw) || trim($raw) === '') {
+			return [];
+		}
+		$decoded = @unserialize($raw, ['allowed_classes' => false]);
+		if (!is_array($decoded)) {
+			return [];
+		}
+		return XrflowAvatarImage::assignedExtensions($decoded);
+	}
+
+	/**
+	 * DIDs in sms_routing for the desk user behind this softphone device.
+	 *
+	 * @return array{ok:bool,http?:int,error?:string,user_extension?:string,dids?:list<array{did:string,adaptor?:string}>}
+	 */
+	public function smsDids($extension, $secret) {
+		$ctx = $this->smsContext($extension, $secret);
+		if (empty($ctx['ok'])) {
+			return $ctx;
+		}
+		return [
+			'ok' => true,
+			'user_extension' => $ctx['user_extension'],
+			'dids' => $ctx['dids'],
+		];
+	}
+
+	/**
+	 * @return array{ok:bool,http?:int,error?:string,threads?:list<array<string,mixed>>}
+	 */
+	public function smsThreads($extension, $secret) {
+		$ctx = $this->smsContext($extension, $secret);
+		if (empty($ctx['ok'])) {
+			return $ctx;
+		}
+		$rows = $this->smsMessageRows($ctx['routing_dids']);
+		$mine = $ctx['did_digits'];
+		$threads = [];
+		foreach ($rows as $row) {
+			$from = preg_replace('/\D/', '', (string) ($row['from'] ?? ''));
+			$to = preg_replace('/\D/', '', (string) ($row['to'] ?? ''));
+			$outbound = $this->smsDidMatches($from, $mine);
+			$remote = $outbound ? $to : $from;
+			if ($remote === '' || $this->smsDidMatches($remote, $mine)) {
+				continue;
+			}
+			if (!isset($threads[$remote])) {
+				$threads[$remote] = [
+					'id' => (string) ($row['threadid'] ?? $remote),
+					'with' => $remote,
+					'direction' => $outbound ? 'out' : 'in',
+					'body' => (string) ($row['body'] ?? ''),
+					'timestamp' => (int) ($row['timestamp'] ?? 0),
+					'unread' => 0,
+				];
+			}
+			if (!$outbound && (int) ($row['read'] ?? 1) === 0) {
+				$threads[$remote]['unread']++;
+			}
+		}
+		return ['ok' => true, 'threads' => array_values($threads)];
+	}
+
+	/**
+	 * @return array{ok:bool,http?:int,error?:string,messages?:list<array<string,mixed>>}
+	 */
+	public function smsMessages($extension, $secret, $with) {
+		$ctx = $this->smsContext($extension, $secret);
+		if (empty($ctx['ok'])) {
+			return $ctx;
+		}
+		$peer = preg_replace('/\D/', '', (string) $with);
+		$mine = $ctx['did_digits'];
+		$messages = [];
+		foreach ($this->smsMessageRows($ctx['routing_dids']) as $row) {
+			$from = preg_replace('/\D/', '', (string) ($row['from'] ?? ''));
+			$to = preg_replace('/\D/', '', (string) ($row['to'] ?? ''));
+			$outbound = $this->smsDidMatches($from, $mine);
+			$remote = $outbound ? $to : $from;
+			if ($peer === '' || !$this->smsDidMatches($remote, [$peer])) {
+				continue;
+			}
+			$messages[] = [
+				'id' => (string) ($row['id'] ?? ''),
+				'body' => (string) ($row['body'] ?? ''),
+				'direction' => $outbound ? 'out' : 'in',
+				'timestamp' => (int) ($row['timestamp'] ?? 0),
+			];
+		}
+		usort($messages, static function ($a, $b) {
+			return ((int) $a['timestamp']) <=> ((int) $b['timestamp']);
+		});
+		return ['ok' => true, 'messages' => $messages];
+	}
+
+	/**
+	 * @return array{ok:bool,http?:int,error?:string,id?:mixed,from?:string,to?:string}
+	 */
+	public function smsSend($extension, $secret, $from, $to, $message) {
+		$ctx = $this->smsContext($extension, $secret);
+		if (empty($ctx['ok'])) {
+			return $ctx;
+		}
+		$fromDigits = preg_replace('/\D/', '', (string) $from);
+		$toDigits = preg_replace('/\D/', '', (string) $to);
+		$message = trim((string) $message);
+		if ($fromDigits === '' || $toDigits === '' || $message === '') {
+			return ['ok' => false, 'http' => 400, 'error' => 'Enter a phone number and message'];
+		}
+		$routingDid = '';
+		foreach ($ctx['routing_dids'] as $did) {
+			$digits = preg_replace('/\D/', '', (string) $did);
+			if ($this->smsDidMatches($digits, [$fromDigits])) {
+				$routingDid = (string) $did;
+				break;
+			}
+		}
+		if ($routingDid === '') {
+			return ['ok' => false, 'http' => 403, 'error' => 'No SMS DID assigned'];
+		}
+		try {
+			$sms = $this->FreePBX->Sms;
+		} catch (\Throwable $e) {
+			$sms = null;
+		}
+		if (!is_object($sms) || !method_exists($sms, 'sendSms')) {
+			return ['ok' => false, 'http' => 503, 'error' => 'SMS module is not available on this PBX'];
+		}
+		$result = $sms->sendSms($routingDid, $toDigits, $message);
+		if (empty($result['status'])) {
+			return ['ok' => false, 'http' => 502, 'error' => 'SMS send failed'];
+		}
+		return [
+			'ok' => true,
+			'id' => $result['id'] ?? '',
+			'from' => preg_replace('/\D/', '', $routingDid),
+			'to' => $toDigits,
+		];
+	}
+
+	/**
+	 * @return array{ok:bool,http?:int,error?:string,user_extension?:string,dids?:list<array{did:string,adaptor?:string}>,did_digits?:list<string>,routing_dids?:list<string>}
+	 */
+	private function smsContext($extension, $secret) {
+		$profile = $this->userProfile($extension, $secret);
+		if (empty($profile['ok'])) {
+			return $profile;
+		}
+		$device = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $extension);
+		$desk = (string) ($profile['user_extension'] ?? '');
+		try {
+			$st = $this->FreePBX->Database->prepare('SELECT user FROM devices WHERE id = ?');
+			$st->execute([$device]);
+			$row = $st->fetch(\PDO::FETCH_ASSOC);
+			if (is_array($row) && !empty($row['user'])) {
+				$linked = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $row['user']);
+				if ($linked !== '') {
+					$desk = $linked;
+				}
+			}
+		} catch (\Throwable $e) {
+			// devices.user is optional; the 97/98/99 prefix still applies
+		}
+		$ids = self::smsIdentityIds($device, $desk);
+		$uids = $this->usermanIdsForSms($ids);
+		$dids = [];
+		$routing = [];
+		$digits = [];
+		if ($uids !== []) {
+			$placeholders = implode(',', array_fill(0, count($uids), '?'));
+			try {
+				$st = $this->FreePBX->Database->prepare(
+					"SELECT did, adaptor FROM sms_routing WHERE uid IN ($placeholders)"
+				);
+				$st->execute($uids);
+				foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+					if (!is_array($row)) {
+						continue;
+					}
+					$rawDid = trim((string) ($row['did'] ?? ''));
+					$only = preg_replace('/\D/', '', $rawDid);
+					if ($only === '' || isset($dids[$only])) {
+						continue;
+					}
+					$adaptor = trim((string) ($row['adaptor'] ?? ''));
+					$dids[$only] = $adaptor !== ''
+						? ['did' => $only, 'adaptor' => $adaptor]
+						: ['did' => $only];
+					$routing[] = $rawDid;
+					$digits[] = $only;
+				}
+			} catch (\Throwable $e) {
+				// SMS module tables are not installed
+			}
+		}
+		return [
+			'ok' => true,
+			'user_extension' => $desk !== '' ? $desk : ($ids[count($ids) - 1] ?? $device),
+			'dids' => array_values($dids),
+			'did_digits' => $digits,
+			'routing_dids' => $routing,
+		];
+	}
+
+	/**
+	 * @param list<string> $ids
+	 * @return list<int>
+	 */
+	private function usermanIdsForSms(array $ids) {
+		$uids = [];
+		if ($ids === []) {
+			return [];
+		}
+		try {
+			$db = $this->FreePBX->Database;
+		} catch (\Throwable $e) {
+			return [];
+		}
+		$placeholders = implode(',', array_fill(0, count($ids), '?'));
+		try {
+			$st = $db->prepare(
+				"SELECT id FROM userman_users WHERE default_extension IN ($placeholders) OR username IN ($placeholders)"
+			);
+			$st->execute(array_merge($ids, $ids));
+			foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+				if (is_array($row) && isset($row['id'])) {
+					$uids[] = (int) $row['id'];
+				}
+			}
+		} catch (\Throwable $e) {
+			// userman table missing
+		}
+		try {
+			$st = $db->prepare(
+				"SELECT uid, val FROM userman_users_settings WHERE module = 'global' AND `key` = 'assigned'"
+			);
+			$st->execute();
+			foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+				if (!is_array($row)) {
+					continue;
+				}
+				$assigned = self::assignedDeviceIds($row['val'] ?? '');
+				if (array_intersect($assigned, $ids) !== []) {
+					$uids[] = (int) ($row['uid'] ?? 0);
+				}
+			}
+		} catch (\Throwable $e) {
+			// assigned devices are optional
+		}
+		$uids = array_values(array_unique(array_filter($uids)));
+		return $uids;
+	}
+
+	/**
+	 * @param list<string> $routingDids
+	 * @return list<array<string,mixed>>
+	 */
+	private function smsMessageRows(array $routingDids) {
+		if ($routingDids === []) {
+			return [];
+		}
+		$wanted = [];
+		foreach ($routingDids as $did) {
+			$digits = preg_replace('/\D/', '', (string) $did);
+			if ($digits !== '') {
+				$wanted[] = $digits;
+			}
+		}
+		if ($wanted === []) {
+			return [];
+		}
+		try {
+			$st = $this->FreePBX->Database->prepare(
+				'SELECT id, `from`, `to`, direction, body, threadid, timestamp, `read` FROM sms_messages ORDER BY timestamp DESC LIMIT 400'
+			);
+			$st->execute();
+			$rows = $st->fetchAll(\PDO::FETCH_ASSOC);
+		} catch (\Throwable $e) {
+			return [];
+		}
+		if (!is_array($rows)) {
+			return [];
+		}
+		$matched = [];
+		foreach ($rows as $row) {
+			if (!is_array($row)) {
+				continue;
+			}
+			$from = preg_replace('/\D/', '', (string) ($row['from'] ?? ''));
+			$to = preg_replace('/\D/', '', (string) ($row['to'] ?? ''));
+			if ($this->smsDidMatches($from, $wanted) || $this->smsDidMatches($to, $wanted)) {
+				$matched[] = $row;
+			}
+		}
+		return $matched;
+	}
+
+	/**
+	 * @param list<string> $candidates
+	 */
+	private function smsDidMatches($value, array $candidates) {
+		$value = preg_replace('/\D/', '', (string) $value);
+		if ($value === '') {
+			return false;
+		}
+		foreach ($candidates as $candidate) {
+			$candidate = preg_replace('/\D/', '', (string) $candidate);
+			if ($candidate === '') {
+				continue;
+			}
+			if ($value === $candidate) {
+				return true;
+			}
+			$shortValue = strlen($value) > 10 ? substr($value, -10) : $value;
+			$shortCandidate = strlen($candidate) > 10 ? substr($candidate, -10) : $candidate;
+			if ($shortValue === $shortCandidate) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private function newUuid() {
 		$data = random_bytes(16);
 		$data[6] = chr((ord($data[6]) & 0x0f) | 0x40);

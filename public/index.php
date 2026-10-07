@@ -19,6 +19,8 @@ $bootstrap_settings = [
 $restrict_mods = [
 	'xrflowsoftphone' => true,
 	'core' => true,
+	'userman' => true,
+	'sms' => true,
 	'manager' => true,
 	'api' => true,
 ];
@@ -184,6 +186,46 @@ if ($method === 'POST' && preg_match('#^/v1/directory-avatars/?$#', $path)) {
 	if ($json === false) {
 		http_response_code(500);
 		echo json_encode(['error' => 'encode_failed']);
+		exit;
+	}
+	echo $json;
+	exit;
+}
+
+if ($method === 'POST' && preg_match('#^/v1/sms/(dids|threads|messages|send)/?$#', $path, $smsMatch)) {
+	$rawBody = file_get_contents('php://input');
+	$data = json_decode((string) $rawBody, true);
+	if (!is_array($data)) {
+		$data = $_POST;
+	}
+	$extension = (string) ($data['extension'] ?? '');
+	$secret = (string) ($data['secret'] ?? '');
+	$action = $smsMatch[1];
+	if ($action === 'dids') {
+		$result = $hub->smsDids($extension, $secret);
+	} elseif ($action === 'threads') {
+		$result = $hub->smsThreads($extension, $secret);
+	} elseif ($action === 'messages') {
+		$result = $hub->smsMessages($extension, $secret, (string) ($data['with'] ?? ''));
+	} else {
+		$result = $hub->smsSend(
+			$extension,
+			$secret,
+			(string) ($data['from'] ?? ''),
+			(string) ($data['to'] ?? ''),
+			(string) ($data['message'] ?? $data['body'] ?? '')
+		);
+	}
+	if (empty($result['ok'])) {
+		http_response_code((int) ($result['http'] ?? 400));
+		echo json_encode(['ok' => false, 'error' => $result['error'] ?? 'sms_failed']);
+		exit;
+	}
+	unset($result['http'], $result['error']);
+	$json = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+	if ($json === false) {
+		http_response_code(500);
+		echo json_encode(['ok' => false, 'error' => 'encode_failed']);
 		exit;
 	}
 	echo $json;
