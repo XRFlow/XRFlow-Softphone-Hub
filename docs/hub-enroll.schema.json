@@ -22,6 +22,19 @@
     "amiSecret": { "type": "string" },
     "oauthClientId": { "type": "string" },
     "oauthClientSecret": { "type": "string" },
+    "ucpUrl": { "type": "string", "description": "User Control Panel base URL." },
+    "ucpUsername": { "type": "string" },
+    "ucpPassword": { "type": "string" },
+    "ucpError": { "type": "string", "description": "Empty when UCP login was set up. Otherwise why voicemail login could not be issued." },
+    "ucp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" }
+      }
+    },
     "openVpnHint": { "type": "string" },
     "openVpnProfile": {
       "type": "object",

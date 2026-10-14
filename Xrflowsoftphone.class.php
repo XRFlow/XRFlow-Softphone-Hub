@@ -733,6 +733,7 @@ SQL;
 		$ami = $this->ensureAmiUser();
 		$amiHost = $needVpn ? $amiLan : $this->amiOfficeHost();
 		$oauth = $this->ensureOauthClient();
+		$ucpLogin = $this->ensureUcpLogin($ext);
 		$payload = [
 			'host' => $host,
 			'https' => true,
@@ -750,6 +751,15 @@ SQL;
 			'amiSecret' => (string) ($ami['secret'] ?? ''),
 			'oauthClientId' => (string) ($oauth['client_id'] ?? ''),
 			'oauthClientSecret' => (string) ($oauth['client_secret'] ?? ''),
+			'ucpUrl' => $ucpLogin['url'],
+			'ucpUsername' => $ucpLogin['username'],
+			'ucpPassword' => $ucpLogin['password'],
+			'ucpError' => $ucpLogin['error'],
+			'ucp' => [
+				'url' => $ucpLogin['url'],
+				'username' => $ucpLogin['username'],
+				'password' => $ucpLogin['password'],
+			],
 			'openVpnHint' => $vpnHint,
 			'policy' => ['minVersion' => '0.2.25', 'lockSettings' => true],
 		];
@@ -2275,6 +2285,395 @@ SQL;
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Turn on User Control Panel login for this extension and return a password
+	 * the softphone can use. FreePBX only stores a hash, so Hub keeps the
+	 * plaintext it issued and reuses it while that password still logs in.
+	 *
+	 * @return array{url:string,username:string,password:string,error:string}
+	 */
+	private function ensureUcpLogin($ext) {
+		$url = $this->ucpPublicUrl();
+		$fail = ['url' => $url, 'username' => '', 'password' => '', 'error' => ''];
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $ext);
+		if ($ext === '') {
+			$fail['error'] = 'No extension for User Control Panel setup.';
+			return $fail;
+		}
+		try {
+			$um = $this->FreePBX->Userman;
+			if (!is_object($um) || !method_exists($um, 'checkCredentials')) {
+				$fail['error'] = 'User Manager is not available.';
+				return $fail;
+			}
+			$name = $this->coreUserName($ext);
+			$user = $this->usermanUserForExtension($ext);
+			if (!is_array($user) || empty($user['id'])) {
+				$user = $this->createUsermanUserForExtension($um, $ext, $name);
+			}
+			if (!is_array($user) || empty($user['id']) || empty($user['username'])) {
+				$fail['error'] = is_string($user) ? $user : 'Could not find or create the User Manager user.';
+				return $fail;
+			}
+			$uid = (int) $user['id'];
+			$username = (string) $user['username'];
+			$description = trim((string) ($user['description'] ?? ''));
+			if ($description === '') {
+				$description = $name;
+			}
+			$default = (string) ($user['default_extension'] ?? '');
+			if ($default === '' || $default === 'none') {
+				$default = $ext;
+			}
+			$key = 'ucp_password_' . $uid;
+			$stored = (string) $this->getConfig($key);
+			$password = '';
+			if ($stored !== '' && $um->checkCredentials($username, $stored)) {
+				$password = $stored;
+				if ((string) ($user['default_extension'] ?? '') !== $default) {
+					$um->updateUser($uid, $username, $username, $default, $description, [], null, true);
+				}
+			} else {
+				$password = $this->newUcpPassword($um);
+				$result = $um->updateUser($uid, $username, $username, $default, $description, [], $password, true);
+				if (empty($result['status']) || !$um->checkCredentials($username, $password)) {
+					$fail['username'] = $username;
+					$fail['error'] = $this->plainStatusMessage($result);
+					return $fail;
+				}
+				$this->setConfig($key, $password);
+			}
+			$this->ensureUcpGroups($um, $uid);
+			$this->ensureUcpWidgets($uid, $ext);
+			$this->ensureExtensionVoicemail($ext, $name);
+			return [
+				'url' => $url,
+				'username' => $username,
+				'password' => $password,
+				'error' => '',
+			];
+		} catch (\Throwable $e) {
+			$fail['error'] = 'Could not set up the User Control Panel.';
+			return $fail;
+		}
+	}
+
+	/**
+	 * @param object $um
+	 * @return array<string,mixed>|string
+	 */
+	private function createUsermanUserForExtension($um, $ext, $name) {
+		if (!method_exists($um, 'addUser')) {
+			return 'User Manager cannot add users.';
+		}
+		if (method_exists($um, 'getUserByUsername') && $um->getUserByUsername($ext)) {
+			return 'Username ' . $ext . ' already belongs to a different extension.';
+		}
+		$parts = preg_split('/\s+/', trim((string) $name), 2);
+		$fname = is_array($parts) ? (string) ($parts[0] ?? '') : '';
+		$lname = is_array($parts) ? (string) ($parts[1] ?? '') : '';
+		if ($fname === $ext) {
+			$fname = '';
+		}
+		$password = $this->newUcpPassword($um);
+		$extra = [
+			'fname' => $fname,
+			'lname' => $lname,
+			'displayname' => $name !== '' ? $name : $ext,
+		];
+		$result = $um->addUser($ext, $password, $ext, $name !== '' ? $name : $ext, $extra);
+		if (empty($result['status']) || empty($result['id'])) {
+			return $this->plainStatusMessage($result);
+		}
+		$uid = (int) $result['id'];
+		$this->setConfig('ucp_password_' . $uid, $password);
+		if (method_exists($um, 'getUserByID')) {
+			$created = $um->getUserByID($uid);
+			if (is_array($created) && !empty($created['id'])) {
+				return $created;
+			}
+		}
+		return [
+			'id' => $uid,
+			'username' => $ext,
+			'description' => $name,
+			'default_extension' => $ext,
+		];
+	}
+
+	/** @return array<string,mixed>|null */
+	private function usermanUserForExtension($ext) {
+		$um = $this->FreePBX->Userman;
+		if (is_object($um) && method_exists($um, 'getUserByDefaultExtension')) {
+			$user = $um->getUserByDefaultExtension($ext);
+			if (is_array($user) && !empty($user['id'])) {
+				return $user;
+			}
+		}
+		if (is_object($um) && method_exists($um, 'getUserByUsername')) {
+			$user = $um->getUserByUsername($ext);
+			if (is_array($user) && !empty($user['id'])) {
+				$def = (string) ($user['default_extension'] ?? '');
+				if ($def === '' || $def === 'none' || $def === (string) $ext) {
+					return $user;
+				}
+			}
+		}
+		try {
+			$st = $this->FreePBX->Database->prepare(
+				'SELECT id FROM userman_users WHERE default_extension = ? LIMIT 1'
+			);
+			$st->execute([$ext]);
+			$row = $st->fetch(\PDO::FETCH_ASSOC);
+			if (is_array($row) && !empty($row['id']) && is_object($um) && method_exists($um, 'getUserByID')) {
+				$full = $um->getUserByID((int) $row['id']);
+				if (is_array($full) && !empty($full['id'])) {
+					return $full;
+				}
+			}
+		} catch (\Throwable $e) {
+			return null;
+		}
+		return null;
+	}
+
+	private function coreUserName($ext) {
+		try {
+			$core = $this->FreePBX->Core;
+			if (is_object($core) && method_exists($core, 'getUser')) {
+				$user = $core->getUser($ext);
+				if (is_array($user) && !empty($user['name'])) {
+					return (string) $user['name'];
+				}
+			}
+		} catch (\Throwable $e) {
+			// extension number is enough
+		}
+		return (string) $ext;
+	}
+
+	/** @param object $um */
+	private function ensureUcpGroups($um, $uid) {
+		if (!method_exists($um, 'getGroupsByID') || !method_exists($um, 'updateGroup')) {
+			return;
+		}
+		$current = $um->getGroupsByID($uid);
+		if (is_array($current) && $current !== []) {
+			return;
+		}
+		$defaults = method_exists($um, 'getDefaultGroups') ? $um->getDefaultGroups() : [];
+		if (!is_array($defaults) || $defaults === []) {
+			$defaults = [];
+			if (method_exists($um, 'getGroupByUsername')) {
+				$all = $um->getGroupByUsername('All Users');
+				if (is_array($all) && !empty($all['id'])) {
+					$defaults[] = $all['id'];
+				}
+			}
+		}
+		foreach ($defaults as $gid) {
+			$gid = (int) $gid;
+			if ($gid < 1 || !method_exists($um, 'getGroupByGID')) {
+				continue;
+			}
+			$group = $um->getGroupByGID($gid);
+			if (!is_array($group) || empty($group['groupname'])) {
+				continue;
+			}
+			$users = (isset($group['users']) && is_array($group['users'])) ? $group['users'] : [];
+			$have = array_map('strval', $users);
+			if (in_array((string) $uid, $have, true)) {
+				continue;
+			}
+			$users[] = (int) $uid;
+			$um->updateGroup(
+				$gid,
+				(string) $group['groupname'],
+				(string) $group['groupname'],
+				$group['description'] ?? '',
+				$users,
+				true
+			);
+		}
+	}
+
+	private function ensureUcpWidgets($uid, $ext) {
+		$ucp = $this->FreePBX->Ucp;
+		if (!is_object($ucp) || !method_exists($ucp, 'setSettingByID')) {
+			return;
+		}
+		$ucp->setSettingByID($uid, 'Global', 'allowLogin', true);
+		$ucp->setSettingByID($uid, 'Global', 'originate', true);
+		$ucp->setSettingByID($uid, 'Settings', 'assigned', $this->ucpAssignedList($uid, 'Settings', $ext));
+		$ucp->setSettingByID($uid, 'Voicemail', 'enable', true);
+		$ucp->setSettingByID($uid, 'Voicemail', 'assigned', $this->ucpAssignedList($uid, 'Voicemail', $ext));
+		foreach (['playback', 'download', 'settings', 'greetings', 'vmxlocater'] as $flag) {
+			$ucp->setSettingByID($uid, 'Voicemail', $flag, true);
+		}
+		$modules = [
+			'cdr' => ['Cdr', ['enable' => true, 'download' => true, 'playback' => true], true],
+			'cel' => ['Cel', ['enable' => true, 'download' => true, 'playback' => true], true],
+			'presencestate' => ['Presencestate', ['enabled' => true], false],
+			'missedcall' => ['Missedcall', ['enabled' => true], false],
+			'findmefollow' => ['Findmefollow', ['enable' => true, 'fmr' => 'enable'], true],
+			'contactmanager' => ['Contactmanager', ['speeddial' => true], false],
+			'conferencespro' => ['Conferencespro', ['enable' => true], false],
+			'companypresence' => ['Companypresence', ['enabled' => true, 'enable' => true], false],
+			'endpoint' => ['Endpoint', ['enable' => true], true],
+		];
+		foreach ($modules as $dir => $spec) {
+			if (!is_dir('/var/www/html/admin/modules/' . $dir)) {
+				continue;
+			}
+			$module = $spec[0];
+			foreach ($spec[1] as $key => $value) {
+				$ucp->setSettingByID($uid, $module, $key, $value);
+			}
+			if ($spec[2]) {
+				$ucp->setSettingByID($uid, $module, 'assigned', $this->ucpAssignedList($uid, $module, $ext));
+			}
+		}
+	}
+
+	/** @return list<string> */
+	private function ucpAssignedList($uid, $module, $ext) {
+		$current = null;
+		try {
+			$current = $this->FreePBX->Userman->getModuleSettingByID($uid, 'ucp|' . $module, 'assigned', true);
+		} catch (\Throwable $e) {
+			$current = null;
+		}
+		if (is_string($current) && $current !== '') {
+			$current = [$current];
+		}
+		$list = [];
+		if (is_array($current)) {
+			foreach ($current as $item) {
+				$item = trim((string) $item);
+				if ($item === '' || strcasecmp($item, 'self') === 0) {
+					continue;
+				}
+				$list[] = $item;
+			}
+		}
+		if (!in_array((string) $ext, $list, true)) {
+			$list[] = (string) $ext;
+		}
+		return array_values(array_unique($list));
+	}
+
+	private function ensureExtensionVoicemail($ext, $name) {
+		try {
+			$vm = $this->FreePBX->Voicemail;
+			if (!is_object($vm)) {
+				return;
+			}
+			$box = method_exists($vm, 'getMailbox') ? $vm->getMailbox($ext) : null;
+			if (empty($box) && method_exists($vm, 'addMailbox')) {
+				$pin = '';
+				for ($i = 0; $i < 6; $i++) {
+					$pin .= (string) random_int(0, 9);
+				}
+				$vm->addMailbox($ext, [
+					'vm' => 'enabled',
+					'name' => $name,
+					'vmpwd' => $pin,
+					'email' => '',
+					'vmcontext' => 'default',
+					'passlogin' => 'passlogin=no',
+					'attach' => 'attach=yes',
+					'envelope' => 'envelope=yes',
+					'vmdelete' => 'vmdelete=no',
+					'saycid' => 'saycid=yes',
+				]);
+				try {
+					needreload();
+				} catch (\Throwable $e) {
+					// mailbox file is written; Apply Config loads it
+				}
+			}
+			$status = '';
+			if (is_object($this->FreePBX->astman)) {
+				$status = (string) $this->FreePBX->astman->database_get('AMPUSER', $ext . '/voicemail');
+			}
+			if (($status === '' || $status === 'novm') && method_exists($vm, 'updateMailBoxContext')) {
+				$vm->updateMailBoxContext($ext, 'default');
+			}
+		} catch (\Throwable $e) {
+			// UCP voicemail permissions are already set
+		}
+	}
+
+	private function ucpPublicUrl() {
+		$host = $this->publicHost();
+		try {
+			$ucp = $this->FreePBX->Ucp;
+			if (is_object($ucp) && method_exists($ucp, 'getUcpLink')) {
+				$url = rtrim((string) $ucp->getUcpLink($host), '/');
+				if ($url !== '') {
+					return $url;
+				}
+			}
+		} catch (\Throwable $e) {
+			// fall through
+		}
+		return 'https://' . $host . '/ucp';
+	}
+
+	/** @param object $um */
+	private function newUcpPassword($um) {
+		for ($try = 0; $try < 6; $try++) {
+			$password = $this->randomUcpPassword();
+			try {
+				if (!method_exists($um, 'password_policies')) {
+					return $password;
+				}
+				$check = $um->password_policies($password);
+				if (!empty($check['status'])) {
+					return $password;
+				}
+			} catch (\Throwable $e) {
+				return $password;
+			}
+		}
+		return $this->randomUcpPassword();
+	}
+
+	private function randomUcpPassword() {
+		$upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+		$lower = 'abcdefghijkmnopqrstuvwxyz';
+		$digits = '23456789';
+		$special = '!@#%*-_=+';
+		$pick = static function ($set) {
+			return $set[random_int(0, strlen($set) - 1)];
+		};
+		$chars = [
+			$pick($upper), $pick($upper),
+			$pick($lower), $pick($lower),
+			$pick($digits), $pick($digits),
+			$pick($special), $pick($special),
+		];
+		$all = $upper . $lower . $digits . $special;
+		while (count($chars) < 20) {
+			$chars[] = $pick($all);
+		}
+		for ($i = count($chars) - 1; $i > 0; $i--) {
+			$j = random_int(0, $i);
+			$tmp = $chars[$i];
+			$chars[$i] = $chars[$j];
+			$chars[$j] = $tmp;
+		}
+		return implode('', $chars);
+	}
+
+	/** @param mixed $result */
+	private function plainStatusMessage($result) {
+		$msg = is_array($result) ? (string) ($result['message'] ?? '') : '';
+		$msg = trim(html_entity_decode(strip_tags($msg)));
+		$msg = preg_replace('/\s+/', ' ', $msg);
+		return is_string($msg) && $msg !== '' ? $msg : 'Could not save the User Control Panel login.';
 	}
 
 	private function newUuid() {

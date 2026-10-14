@@ -61,7 +61,7 @@ foreach ($rows as $row) {
 								<code style="user-select:all"><?php echo htmlspecialchars($flash['token']) ?></code></p>
 							<p><strong><?php echo _("HTTPS") ?>:</strong><br/>
 								<code style="word-break:break-all"><?php echo htmlspecialchars($flash['https_link']) ?></code></p>
-							<p class="small"><?php echo _("Paste the token in XRFlow Softphone → Use Hub enroll code. SIP secret is delivered only on redeem over TLS.") ?></p>
+							<p class="small"><?php echo _("Paste the token in XRFlow Softphone → Use Hub enroll code. SIP secret and the User Control Panel login are delivered only on redeem over TLS. That login is what the softphone uses for voicemail.") ?></p>
 						</div>
 					<?php } ?>
 

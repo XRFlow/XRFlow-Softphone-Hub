@@ -91,7 +91,9 @@ The desktop app replaces the upper-left XRFlow mark when the desk is enrolled wi
 
 JPG, GIF, and WebP are rejected. PNG DPI is read from the file’s pHYs chunk. If that chunk is missing, the upload is rejected.
 
-SIP passwords and the desktop AMI login travel only when the app redeems the code over HTTPS. Do not paste enroll codes into email threads that sit around; they are short-lived on purpose.
+SIP passwords, the desktop AMI login, and the User Control Panel login travel only when the app redeems the code over HTTPS. Do not paste enroll codes into email threads that sit around; they are short-lived on purpose.
+
+Redeem also turns on User Control Panel access for that person: login allowed, voicemail (listen, download, settings, greetings), call history, presence, follow me, and the extension controls the softphone needs. If Hub does not already have a working password for that User Manager user, the first redeem sets one and returns it. A later redeem reuses that same password. Changing the password in User Manager means the next redeem replaces it so the softphone can still log in.
 
 Hub creates an Asterisk Manager user named `xrflow-hub` (not the FreePBX admin AMI login). The app uses it for call events. That user is allowed from localhost, the office LAN, and OpenVPN. It is not opened to the whole internet. After the first Hub install, click **Apply Config** so Asterisk loads the AMI user.
 
