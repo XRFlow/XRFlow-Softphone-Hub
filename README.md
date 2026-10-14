@@ -93,7 +93,7 @@ JPG, GIF, and WebP are rejected. PNG DPI is read from the file’s pHYs chunk. I
 
 SIP passwords, the desktop AMI login, and the User Control Panel login travel only when the app redeems the code over HTTPS. Do not paste enroll codes into email threads that sit around; they are short-lived on purpose.
 
-Redeem also turns on User Control Panel access for that person: login allowed, voicemail (listen, download, settings, greetings), call history, presence, follow me, and the extension controls the softphone needs. If Hub does not already have a working password for that User Manager user, the first redeem sets one and returns it. A later redeem reuses that same password. Changing the password in User Manager means the next redeem replaces it so the softphone can still log in.
+Redeem turns on User Control Panel access for that person: login allowed, voicemail (listen, download, settings, greetings), call history, presence, follow me, and the extension controls the softphone needs. The installed softphone signs in as the companion device id (97 plus the extension) with that device's SIP secret, and that login opens the desk extension's mailbox. Hub also keeps a User Manager password for the extension username and returns it as ucpUsername and ucpPassword. A later redeem reuses that password while it still logs in. Changing it in User Manager means the next redeem replaces it.
 
 Hub creates an Asterisk Manager user named `xrflow-hub` (not the FreePBX admin AMI login). The app uses it for call events. That user is allowed from localhost, the office LAN, and OpenVPN. It is not opened to the whole internet. After the first Hub install, click **Apply Config** so Asterisk loads the AMI user.
 

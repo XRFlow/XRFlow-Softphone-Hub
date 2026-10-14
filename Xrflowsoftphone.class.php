@@ -734,6 +734,10 @@ SQL;
 		$amiHost = $needVpn ? $amiLan : $this->amiOfficeHost();
 		$oauth = $this->ensureOauthClient();
 		$ucpLogin = $this->ensureUcpLogin($ext);
+		$softphoneUcp = $this->ensureSoftphoneUcpLogin($ext, $sipId, $secret);
+		if (!empty($softphoneUcp['error'])) {
+			$ucpLogin['error'] = trim($ucpLogin['error'] . ' ' . $softphoneUcp['error']);
+		}
 		$payload = [
 			'host' => $host,
 			'https' => true,
@@ -2406,37 +2410,300 @@ SQL;
 	/** @return array<string,mixed>|null */
 	private function usermanUserForExtension($ext) {
 		$um = $this->FreePBX->Userman;
-		if (is_object($um) && method_exists($um, 'getUserByDefaultExtension')) {
-			$user = $um->getUserByDefaultExtension($ext);
-			if (is_array($user) && !empty($user['id'])) {
-				return $user;
-			}
-		}
+		$ext = (string) $ext;
+		// Username match wins. getUserByDefaultExtension is LIMIT 1 with no
+		// order, and the softphone login shares this default extension.
 		if (is_object($um) && method_exists($um, 'getUserByUsername')) {
 			$user = $um->getUserByUsername($ext);
 			if (is_array($user) && !empty($user['id'])) {
 				$def = (string) ($user['default_extension'] ?? '');
-				if ($def === '' || $def === 'none' || $def === (string) $ext) {
+				if ($def === '' || $def === 'none' || $def === $ext) {
 					return $user;
 				}
 			}
 		}
+		if (is_object($um) && method_exists($um, 'getUserByDefaultExtension')) {
+			$user = $um->getUserByDefaultExtension($ext);
+			if ($this->isDeskUsermanUser($user, $ext)) {
+				return $user;
+			}
+		}
 		try {
 			$st = $this->FreePBX->Database->prepare(
-				'SELECT id FROM userman_users WHERE default_extension = ? LIMIT 1'
+				'SELECT id, username FROM userman_users WHERE default_extension = ?'
 			);
 			$st->execute([$ext]);
-			$row = $st->fetch(\PDO::FETCH_ASSOC);
-			if (is_array($row) && !empty($row['id']) && is_object($um) && method_exists($um, 'getUserByID')) {
-				$full = $um->getUserByID((int) $row['id']);
-				if (is_array($full) && !empty($full['id'])) {
-					return $full;
+			foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+				if (!is_array($row) || empty($row['id']) || !$this->isDeskUsermanUser($row, $ext)) {
+					continue;
+				}
+				if (is_object($um) && method_exists($um, 'getUserByID')) {
+					$full = $um->getUserByID((int) $row['id']);
+					if (is_array($full) && !empty($full['id'])) {
+						return $full;
+					}
 				}
 			}
 		} catch (\Throwable $e) {
 			return null;
 		}
 		return null;
+	}
+
+	/**
+	 * The installed softphone signs in to UCP as the 97 device id with that
+	 * device's SIP secret. It does not send ucpUsername or ucpPassword.
+	 * The login's mailbox is the desk extension. The SIP secret is not stored.
+	 *
+	 * @return array{username:string,error:string}
+	 */
+	private function ensureSoftphoneUcpLogin($ext, $sipId, $secret) {
+		$none = ['username' => '', 'error' => ''];
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $ext);
+		$sipId = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $sipId);
+		$secret = (string) $secret;
+		if ($ext === '' || $sipId === '' || $sipId === $ext || $secret === '') {
+			return $none;
+		}
+		if ($sipId !== self::SOFTPHONE_PREFIX . $ext) {
+			return $none;
+		}
+		try {
+			$um = $this->FreePBX->Userman;
+			if (!is_object($um) || !method_exists($um, 'addUser') || !method_exists($um, 'checkCredentials')) {
+				return ['username' => $sipId, 'error' => 'User Manager is not available.'];
+			}
+			$name = $this->coreUserName($ext);
+			$description = ($name !== '' && $name !== $ext) ? ($name . ' softphone') : ($ext . ' softphone');
+			$user = method_exists($um, 'getUserByUsername') ? $um->getUserByUsername($sipId) : null;
+			if (is_array($user) && !empty($user['id'])) {
+				$def = (string) ($user['default_extension'] ?? '');
+				if ($def !== '' && $def !== 'none' && $def !== $ext && $def !== $sipId) {
+					return ['username' => $sipId, 'error' => 'Username ' . $sipId . ' already belongs to another extension.'];
+				}
+				$uid = (int) $user['id'];
+				if (!$um->checkCredentials($sipId, $secret)) {
+					$policyError = $this->ucpPasswordPolicyError($um, $secret);
+					if ($policyError !== '') {
+						return ['username' => $sipId, 'error' => $policyError];
+					}
+					$result = $um->updateUser($uid, $sipId, $sipId, 'none', $description, [], $secret, true);
+					if (empty($result['status']) || !$um->checkCredentials($sipId, $secret)) {
+						return ['username' => $sipId, 'error' => $this->plainStatusMessage($result)];
+					}
+				}
+			} else {
+				$policyError = $this->ucpPasswordPolicyError($um, $secret);
+				if ($policyError !== '') {
+					return ['username' => $sipId, 'error' => $policyError];
+				}
+				$parts = preg_split('/\s+/', trim((string) $name), 2);
+				$fname = is_array($parts) ? (string) ($parts[0] ?? '') : '';
+				$lname = is_array($parts) ? (string) ($parts[1] ?? '') : '';
+				if ($fname === '' || $fname === $ext) {
+					$fname = $description;
+					$lname = '';
+				}
+				$result = $um->addUser($sipId, $secret, 'none', $description, [
+					'fname' => $fname,
+					'lname' => $lname,
+					'displayname' => $description,
+				]);
+				if (empty($result['status']) || empty($result['id'])) {
+					return ['username' => $sipId, 'error' => $this->plainStatusMessage($result)];
+				}
+				$uid = (int) $result['id'];
+				if (!$um->checkCredentials($sipId, $secret)) {
+					return ['username' => $sipId, 'error' => 'Could not save the softphone User Control Panel login.'];
+				}
+			}
+			if (!$this->setCompanionDefaultExtension($uid, $sipId, $ext)) {
+				return ['username' => $sipId, 'error' => 'Could not attach the softphone login to extension ' . $ext . '.'];
+			}
+			$this->ensureUcpWidgets($uid, $ext);
+			$this->assignCompanionVoicemail($uid, $ext, $sipId);
+			$this->linkCompanionMailbox($ext, $sipId);
+			$this->keepFaxProLoginRow($uid);
+			return ['username' => $sipId, 'error' => ''];
+		} catch (\Throwable $e) {
+			return ['username' => $sipId, 'error' => 'Could not set up the softphone User Control Panel login.'];
+		}
+	}
+
+	/**
+	 * Fax Pro's UCP login hook crashes when this row is missing.
+	 * Leave an existing row alone. Do not turn fax on.
+	 */
+	private function keepFaxProLoginRow($uid) {
+		try {
+			$st = $this->FreePBX->Database->prepare('SELECT user FROM fax_users WHERE user = ?');
+			$st->execute([(int) $uid]);
+			if ($st->fetchColumn() !== false) {
+				return;
+			}
+			$insert = $this->FreePBX->Database->prepare(
+				'INSERT INTO fax_users (user, faxenabled, faxemail, faxattachformat) VALUES (?, ?, ?, ?)'
+			);
+			$insert->execute([(int) $uid, 'false', '', 'pdf']);
+		} catch (\Throwable $e) {
+			// Fax Pro is not installed, or the row is already there.
+		}
+	}
+
+	/**
+	 * The softphone asks UCP for the 97 device id. That id has to be allowed,
+	 * and it has to open the desk mailbox rather than an empty second box.
+	 */
+	private function assignCompanionVoicemail($uid, $ext, $sipId) {
+		$ucp = $this->FreePBX->Ucp;
+		if (!is_object($ucp) || !method_exists($ucp, 'setSettingByID')) {
+			return;
+		}
+		$list = $this->ucpAssignedList($uid, 'Voicemail', $ext);
+		if (!in_array((string) $sipId, $list, true)) {
+			$list[] = (string) $sipId;
+		}
+		$ucp->setSettingByID($uid, 'Voicemail', 'assigned', $list);
+	}
+
+	private function linkCompanionMailbox($ext, $sipId) {
+		try {
+			$vm = $this->FreePBX->Voicemail;
+			if (!is_object($vm) || !method_exists($vm, 'getMailbox') || !method_exists($vm, 'addMailbox')) {
+				return;
+			}
+			$box = $vm->getMailbox($ext);
+			if (empty($box['vmcontext'])) {
+				return;
+			}
+			$alias = $vm->getMailbox($sipId);
+			if (empty($alias['vmcontext'])) {
+				$options = [];
+				if (!empty($box['options']) && is_array($box['options'])) {
+					foreach ($box['options'] as $key => $value) {
+						$options[] = $key . '=' . $value;
+					}
+				}
+				$vm->addMailbox($sipId, [
+					'vm' => 'enabled',
+					'name' => (string) ($box['name'] ?? $ext),
+					'vmpwd' => (string) ($box['pwd'] ?? ''),
+					'email' => '',
+					'pager' => '',
+					'vmcontext' => (string) $box['vmcontext'],
+					'options' => implode('|', $options),
+					'passlogin' => 'no',
+				]);
+			}
+			$this->linkVoicemailSpool((string) $box['vmcontext'], $ext, $sipId);
+		} catch (\Throwable $e) {
+			// Desk mailbox stays as it was. The login is still created.
+		}
+	}
+
+	private function linkVoicemailSpool($context, $ext, $sipId) {
+		$context = preg_replace('/[^0-9A-Za-z_-]/', '', $context);
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', $ext);
+		$sipId = preg_replace('/[^0-9A-Za-z_-]/', '', $sipId);
+		if ($context === '' || $ext === '' || $sipId === '' || $sipId === $ext) {
+			return;
+		}
+		$base = rtrim((string) $this->FreePBX->Config->get('ASTSPOOLDIR'), '/') . '/voicemail/' . $context;
+		$source = $base . '/' . $ext;
+		$alias = $base . '/' . $sipId;
+		if (!is_dir($source)) {
+			return;
+		}
+		if (is_link($alias)) {
+			$target = readlink($alias);
+			if ($target === $ext || $target === $source) {
+				return;
+			}
+			unlink($alias);
+		} elseif (file_exists($alias)) {
+			if (!$this->voicemailFolderIsEmpty($alias)) {
+				return;
+			}
+			$this->removeEmptyVoicemailFolder($alias);
+		}
+		if (!file_exists($alias)) {
+			symlink($ext, $alias);
+		}
+	}
+
+	private function voicemailFolderIsEmpty($dir) {
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
+		);
+		foreach ($iterator as $file) {
+			if ($file->isFile()) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private function removeEmptyVoicemailFolder($dir) {
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::CHILD_FIRST
+		);
+		foreach ($iterator as $file) {
+			if ($file->isDir()) {
+				rmdir($file->getPathname());
+			}
+		}
+		rmdir($dir);
+	}
+
+	/**
+	 * Point the companion login at the desk mailbox without Userman::updateUser.
+	 * That hook remaps Company Presence for the extension onto this login.
+	 */
+	private function setCompanionDefaultExtension($uid, $sipId, $ext) {
+		$st = $this->FreePBX->Database->prepare(
+			'UPDATE userman_users SET default_extension = ? WHERE id = ? AND username = ?'
+		);
+		$st->execute([(string) $ext, (int) $uid, (string) $sipId]);
+		$check = $this->FreePBX->Database->prepare(
+			'SELECT default_extension FROM userman_users WHERE id = ? AND username = ?'
+		);
+		$check->execute([(int) $uid, (string) $sipId]);
+		return (string) $check->fetchColumn() === (string) $ext;
+	}
+
+	/** @param object $um */
+	private function ucpPasswordPolicyError($um, $secret) {
+		if (!method_exists($um, 'password_policies')) {
+			return '';
+		}
+		$check = $um->password_policies($secret);
+		if (!empty($check['status'])) {
+			return '';
+		}
+		return 'The softphone SIP secret does not meet the User Manager password policy.';
+	}
+
+	/** @param mixed $user */
+	private function isDeskUsermanUser($user, $ext) {
+		if (!is_array($user) || empty($user['id'])) {
+			return false;
+		}
+		return !$this->isSoftphoneCompanionUsername((string) ($user['username'] ?? ''), (string) $ext);
+	}
+
+	private function isSoftphoneCompanionUsername($username, $ext) {
+		$username = (string) $username;
+		$ext = (string) $ext;
+		if ($ext === '' || $username === '' || $username === $ext) {
+			return false;
+		}
+		foreach ([self::SOFTPHONE_PREFIX, '98', '99'] as $prefix) {
+			if ($username === $prefix . $ext) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private function coreUserName($ext) {
