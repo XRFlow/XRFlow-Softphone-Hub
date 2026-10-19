@@ -63,6 +63,7 @@ class Xrflowsoftphone extends FreePBX_Helpers implements BMO {
 		$this->installTables();
 		$this->ensureAmiUser();
 		$this->ensureOauthClient();
+		$this->repairCompanionCallerIds();
 	}
 
 	private function installTables() {
@@ -308,6 +309,101 @@ SQL;
 		];
 	}
 
+	/**
+	 * Caller ID to store on a companion device, or null when the current value stays.
+	 * Rewrites an empty number, this device id, or a 97/98/99 companion of the same desk.
+	 * A desk extension or a custom DID is left alone. Name casing comes from $deskName,
+	 * not from a lowercased keyword read.
+	 *
+	 * @param string $deviceId Companion endpoint id, for example 971016
+	 * @param string $deskExt Desk extension, for example 1016
+	 * @param string $deskName User display name
+	 * @param string $currentCallerId Current endpoint callerid, any case
+	 * @return string|null
+	 */
+	public static function companionCallerId($deviceId, $deskExt, $deskName, $currentCallerId) {
+		$deviceId = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $deviceId);
+		$deskExt = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $deskExt);
+		if ($deviceId === '' || $deskExt === '' || $deviceId === $deskExt) {
+			return null;
+		}
+		$number = self::callerIdNumber($currentCallerId);
+		if (!self::numberIsCompanion($number, $deviceId, $deskExt)) {
+			return null;
+		}
+		$name = trim(str_replace(array("\r", "\n", '<', '>', '"'), ' ', (string) $deskName));
+		$name = trim((string) preg_replace('/\s+/', ' ', $name));
+		if ($name === '' || strcasecmp($name, $deviceId) === 0 || strcasecmp($name, $deskExt) === 0) {
+			$name = $deskExt;
+		}
+		if (strlen($name) > 60) {
+			$name = rtrim(substr($name, 0, 60));
+		}
+		return $name . ' <' . $deskExt . '>';
+	}
+
+	/**
+	 * devices.user for the companion, or null when the current link stays.
+	 * Blank, this device id, or a 97/98/99 id for the same desk becomes the desk extension.
+	 * A device already linked to someone else is not taken.
+	 *
+	 * @param string $deviceId
+	 * @param string $deskExt
+	 * @param string $currentUser
+	 * @return string|null
+	 */
+	public static function companionDeviceUser($deviceId, $deskExt, $currentUser) {
+		$deviceId = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $deviceId);
+		$deskExt = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $deskExt);
+		$current = trim((string) $currentUser);
+		if ($deviceId === '' || $deskExt === '' || $deviceId === $deskExt) {
+			return null;
+		}
+		if ($current !== '' && !self::numberIsCompanion($current, $deviceId, $deskExt)) {
+			return null;
+		}
+		return $deskExt;
+	}
+
+	/**
+	 * Digits inside <...> or a bare number. A name with no number is empty.
+	 *
+	 * @param string $callerId
+	 * @return string
+	 */
+	public static function callerIdNumber($callerId) {
+		$raw = trim((string) $callerId);
+		if (preg_match('/<([^>]*)>/', $raw, $m)) {
+			$raw = trim($m[1]);
+		} elseif (preg_match('/[A-Za-z]/', $raw)) {
+			return '';
+		}
+		$digits = preg_replace('/\D+/', '', $raw);
+		return $digits === null ? '' : $digits;
+	}
+
+	/**
+	 * True when $number is missing or is a companion id for this desk (97/98/99 or this device).
+	 */
+	private static function numberIsCompanion($number, $deviceId, $deskExt) {
+		$number = trim((string) $number);
+		if ($number === '') {
+			return true;
+		}
+		if ($deviceId !== '' && strcasecmp($number, $deviceId) === 0) {
+			return true;
+		}
+		if ($deskExt === '') {
+			return false;
+		}
+		foreach (array('97', '98', '99') as $prefix) {
+			if (strcasecmp($number, $prefix . $deskExt) === 0) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** 488 checklist — match desktop pjsip-endpoint-media.ts */
 	public static function webrtcExpected() {
 		return [
@@ -348,6 +444,12 @@ SQL;
 		$applied = [];
 		$skipped = [];
 		$devices = [];
+		$names = array();
+		try {
+			$names = $this->listExtensions();
+		} catch (\Throwable $e) {
+			$names = array();
+		}
 		foreach ($exts as $ext) {
 			$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $ext);
 			if ($ext === '') {
@@ -363,7 +465,9 @@ SQL;
 			if (($existingKv['media_encryption'] ?? '') === 'dtls' && ($existingKv['dtls_auto_generate_cert'] ?? '') !== 'yes') {
 				unset($template['dtls_auto_generate_cert']);
 			}
-			if ($this->writePjsipKeywords($dev, $template)) {
+			$deskName = isset($names[$ext]) ? (string) $names[$ext] : '';
+			$cidOk = $this->repairOneCompanionCallerId($ext, $deskName);
+			if ($this->writePjsipKeywords($dev, $template) || $cidOk) {
 				$applied[] = $ext;
 				$devices[$ext] = $dev;
 			} else {
@@ -379,7 +483,7 @@ SQL;
 		}
 		$msg = $applied
 			? ('Set up a separate softphone device for ' . implode(', ', $applied)
-				. ' (desk phones were not changed). Click Apply Config in FreePBX (red button) before they call.')
+				. ' (desk phones were not changed). Calls from the softphone show the desk extension. Click Apply Config in FreePBX (red button) before they call.')
 			: 'No softphone devices were updated.';
 		return [
 			'ok' => $applied !== [],
@@ -1174,6 +1278,11 @@ SQL;
 		if ($this->isPrimaryDeskPhone($ext)) {
 			return false;
 		}
+		return $this->writeEndpointKeywords($ext, $kv);
+	}
+
+	/** Keyword write with no desk-phone guard. Caller must refuse the desk extension id. */
+	private function writeEndpointKeywords($ext, array $kv) {
 		try {
 			$table = $this->endpointTable($ext);
 			$st = $this->FreePBX->Database->prepare(
@@ -1279,6 +1388,124 @@ SQL;
 		return '';
 	}
 
+	/**
+	 * Point every existing companion at the desk extension.
+	 * Module install and upgrade call this so an already-enrolled desk changes
+	 * without a new enroll code. Apply Config still has to be clicked.
+	 */
+	private function repairCompanionCallerIds() {
+		$changed = false;
+		try {
+			$exts = $this->listExtensions();
+		} catch (\Throwable $e) {
+			return false;
+		}
+		foreach ($exts as $ext => $name) {
+			try {
+				if ($this->repairOneCompanionCallerId((string) $ext, (string) $name)) {
+					$changed = true;
+				}
+			} catch (\Throwable $e) {
+				// one extension does not stop the rest
+			}
+		}
+		if ($changed) {
+			try {
+				needreload();
+			} catch (\Throwable $e) {
+			}
+		}
+		return $changed;
+	}
+
+	/**
+	 * @param string $ext Desk extension
+	 * @param string $deskName Display name. Empty looks the user up.
+	 */
+	private function repairOneCompanionCallerId($ext, $deskName = '') {
+		$ext = preg_replace('/[^0-9A-Za-z_-]/', '', (string) $ext);
+		if ($ext === '') {
+			return false;
+		}
+		$dev = $this->findSoftphoneDevice($ext);
+		if ($dev === '' || $dev === $ext) {
+			return false;
+		}
+		if (trim((string) $deskName) === '' || trim((string) $deskName) === $ext) {
+			$looked = $this->deskDisplayName($ext);
+			if ($looked !== '') {
+				$deskName = $looked;
+			}
+		}
+		$changed = false;
+		$currentUser = $this->deviceUser($dev);
+		if ($currentUser !== null) {
+			$nextUser = self::companionDeviceUser($dev, $ext, $currentUser);
+			if ($nextUser !== null && $this->writeDeviceUser($dev, $nextUser)) {
+				$changed = true;
+			}
+		}
+		$kv = $this->pjsipKeywords($dev);
+		$nextCid = self::companionCallerId($dev, $ext, (string) $deskName, (string) ($kv['callerid'] ?? ''));
+		if ($nextCid !== null && $this->writeEndpointKeywords($dev, array('callerid' => $nextCid))) {
+			$changed = true;
+		}
+		return $changed;
+	}
+
+	/** @return string */
+	private function deskDisplayName($ext) {
+		try {
+			$core = $this->FreePBX->Core;
+			if (is_object($core) && method_exists($core, 'getUser')) {
+				$user = $core->getUser($ext);
+				if (is_array($user) && !empty($user['name'])) {
+					return (string) $user['name'];
+				}
+			}
+		} catch (\Throwable $e) {
+		}
+		try {
+			$listed = $this->listExtensions();
+			if (!empty($listed[$ext])) {
+				return (string) $listed[$ext];
+			}
+		} catch (\Throwable $e) {
+		}
+		return (string) $ext;
+	}
+
+	/** @return string|null null when the devices row could not be read */
+	private function deviceUser($id) {
+		try {
+			$st = $this->FreePBX->Database->prepare('SELECT user FROM devices WHERE id = ?');
+			$st->execute(array($id));
+			$row = $st->fetch(\PDO::FETCH_ASSOC);
+			if (!is_array($row)) {
+				return null;
+			}
+			return trim((string) ($row['user'] ?? ''));
+		} catch (\Throwable $e) {
+			return null;
+		}
+	}
+
+	/** Link the companion device to the desk user. Never updates the desk extension row. */
+	private function writeDeviceUser($id, $user) {
+		if ($id === '' || $user === '' || (string) $id === (string) $user) {
+			return false;
+		}
+		try {
+			$st = $this->FreePBX->Database->prepare(
+				'UPDATE devices SET user = ? WHERE id = ? AND id <> ?'
+			);
+			$st->execute(array($user, $id, $user));
+			return true;
+		} catch (\Throwable $e) {
+			return false;
+		}
+	}
+
 	private function ensureSoftphoneDevice($ext) {
 		$existing = $this->findSoftphoneDevice($ext);
 		if ($existing !== '') {
@@ -1305,7 +1532,8 @@ SQL;
 			$settings['user']['value'] = $ext;
 			$settings['hint_override']['value'] = $settings['hint_override']['value'] ?? null;
 			$settings['context']['value'] = !empty($primary['context']) ? $primary['context'] : 'from-internal';
-			$settings['callerid']['value'] = $name . ' <' . $ext . '>';
+			$cid = self::companionCallerId($id, $ext, $name, '');
+			$settings['callerid']['value'] = $cid !== null ? $cid : ($name . ' <' . $ext . '>');
 			$settings['force_callerid']['value'] = 'yes';
 			$settings['accountcode']['value'] = $primary['accountcode'] ?? '';
 			$settings['namedcallgroup']['value'] = $primary['namedcallgroup'] ?? '';

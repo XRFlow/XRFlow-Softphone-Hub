@@ -2,7 +2,7 @@
 	<rawname>xrflowsoftphone</rawname>
 	<repo>unsupported</repo>
 	<name>XRFlow Softphone Hub</name>
-	<version>0.2.19</version>
+	<version>0.2.20</version>
 	<category>Admin</category>
 	<publisher>XRFlow</publisher>
 	<license>GPLv3+</license>
@@ -17,6 +17,7 @@
 		Does not rewrite System Admin OpenVPN remotes.
 	</description>
 	<changelog>
+		*0.2.20* Calls from an existing softphone device show the desk extension. A caller ID of 971016, 981016, or 991016 is rewritten to the desk extension. A custom outside number is left alone. Click Apply Config.
 		*0.2.19* The softphone signs in to UCP as the 97 device id with that device's SIP secret. That login reads the desk extension's voicemail.
 		*0.2.18* Enroll turns on User Control Panel login, voicemail, and the other UCP widgets, and sends that login
 		*0.2.17* SMS DIDs assigned to the desk user are returned for the companion softphone device (97/98/99 plus the extension).
